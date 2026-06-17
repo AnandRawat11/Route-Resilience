@@ -1,0 +1,57 @@
+# Route Resilience — .gitignore
+
+# ── Virtual environments ──────────────────────────────────────
+.venv/
+venv/
+env/
+tf-env/
+tf310-env/
+
+# ── Python cache ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# ── Jupyter ───────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb.bak
+
+# ── Data (large — download separately) ───────────────────────
+data/raw/
+data/processed/
+data/tiles/
+data/train/
+data/val/
+data/test/
+data/interim/
+data/metadata/
+
+# ── Models (large — stored in models/registry or external DVC)
+models/checkpoints/
+models/exported/
+models/predictions/
+# models/registry/ — keep registry tracked
+
+# ── Experiment artefacts ──────────────────────────────────────
+experiments/
+
+# ── Outputs (optionally commit final reports) ─────────────────
+outputs/occlusion_samples/
+outputs/visualizations/
+# outputs/reports/ — keep reports tracked
+
+# ── Logs ──────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp

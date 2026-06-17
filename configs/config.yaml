@@ -1,0 +1,231 @@
+# ============================================================
+# Route Resilience — Phase 1 Configuration
+# configs/config.yaml
+# ============================================================
+
+# ── Project ──────────────────────────────────────────────────
+project:
+  name: "Route Resilience"
+  phase: 1
+  version: "1.0.0"
+  random_seed: 42
+
+# ── Dataset Paths ─────────────────────────────────────────────
+datasets:
+  spacenet:
+    enabled: true
+    raw_dir: "data/raw/spacenet"
+    image_subdir: "images"          # subdirectory containing .tif files
+    mask_subdir: "masks"            # subdirectory containing mask files
+    image_extensions: [".tif", ".tiff", ".png"]
+    mask_extensions: [".tif", ".tiff", ".png"]
+    description: "SpaceNet Roads Dataset (Vegas, Paris, Shanghai, Khartoum)"
+
+  deepglobe:
+    enabled: true
+    raw_dir: "data/raw/deepglobe"
+    image_subdir: "images"
+    mask_subdir: "masks"
+    image_extensions: [".jpg", ".png", ".tif"]
+    mask_extensions: [".png", ".tif"]
+    description: "DeepGlobe Road Extraction Dataset"
+
+  opensatmap:
+    enabled: true
+    raw_dir: "data/raw/opensatmap"
+    image_subdir: "images"
+    mask_subdir: "masks"
+    image_extensions: [".png", ".jpg", ".tif"]
+    mask_extensions: [".png", ".tif"]
+    description: "OpenSatMap Dataset"
+
+  osm:
+    enabled: true
+    raw_dir: "data/raw/osm"
+    vector_subdir: "vectors"        # .geojson or .shp road vectors
+    description: "OpenStreetMap-derived road masks"
+    buffer_meters: 3.0              # road buffer width for mask generation
+
+  cartosat:
+    enabled: false                  # Enable when Cartosat-3 data is available
+    raw_dir: "data/raw/cartosat"
+    image_subdir: "images"
+    mask_subdir: "masks"
+    image_extensions: [".tif", ".tiff"]
+    description: "Cartosat-3 High Resolution Imagery (future)"
+
+# ── Processed Output Paths ────────────────────────────────────
+paths:
+  processed_images: "data/processed/images"
+  processed_masks: "data/processed/masks"
+  processed_metadata: "data/processed/metadata"
+  tiles_images: "data/tiles/images"
+  tiles_masks: "data/tiles/masks"
+  train_images: "data/train/images"
+  train_masks: "data/train/masks"
+  val_images: "data/val/images"
+  val_masks: "data/val/masks"
+  test_images: "data/test/images"
+  test_masks: "data/test/masks"
+  reports: "outputs/reports"
+  visualizations: "outputs/visualizations"
+  occlusion_samples: "outputs/occlusion_samples"
+  logs: "logs"
+
+# ── Image Standardization ─────────────────────────────────────
+standardization:
+  target_channels: 3                # Output RGB
+  target_dtype: "uint8"             # 8-bit output for PNG
+  percentile_low: 2                 # For 16-bit → 8-bit stretch
+  percentile_high: 98
+  resize_enabled: false             # Resize large images before tiling
+  max_dimension: 4096               # Max width/height if resize_enabled
+  interpolation: "lanczos"          # For images: lanczos; masks: nearest
+  normalize_float: true             # Also save [0,1] float32 for training
+
+# ── Tiling ───────────────────────────────────────────────────
+tiling:
+  tile_size: 512                    # pixels
+  stride: 256                       # 50% overlap
+  pad_mode: "reflect"               # reflect | constant
+  pad_value: 0                      # for constant pad mode
+  min_road_pixel_pct: 0.5           # discard tiles below this road %
+  min_image_std: 5.0                # discard nearly-blank tiles (0-255 range)
+  save_tile_info: true
+
+# ── Dataset Splitting ─────────────────────────────────────────
+splitting:
+  train_ratio: 0.70
+  val_ratio: 0.15
+  test_ratio: 0.15
+  stratify_by_source: true          # Maintain dataset source ratio across splits
+  allow_empty_splits: false
+
+# ── Augmentation ─────────────────────────────────────────────
+augmentation:
+  enabled: true
+  preview_count: 8                  # Number of augmented samples to generate for preview
+  pipeline:
+    horizontal_flip:
+      p: 0.5
+    vertical_flip:
+      p: 0.5
+    random_rotate_90:
+      p: 0.5
+    shift_scale_rotate:
+      shift_limit: 0.0625
+      scale_limit: 0.2
+      rotate_limit: 45
+      p: 0.5
+    random_brightness_contrast:
+      brightness_limit: 0.3
+      contrast_limit: 0.3
+      p: 0.5
+    gauss_noise:
+      var_limit: [10, 50]
+      p: 0.3
+    blur:
+      blur_limit: 3
+      p: 0.3
+    clahe:
+      clip_limit: 4.0
+      p: 0.3
+
+# ── Occlusion Simulation ──────────────────────────────────────
+occlusion:
+  enabled: true
+  samples_to_generate: 20           # Number of occlusion sample visualizations
+  types:
+    tree_canopy:
+      enabled: true
+      # Severity thresholds (fraction of road pixels occluded)
+      light:
+        coverage_min: 0.10
+        coverage_max: 0.25
+      medium:
+        coverage_min: 0.25
+        coverage_max: 0.50
+      heavy:
+        coverage_min: 0.50
+        coverage_max: 0.75
+      noise_scale: 0.05             # Perlin noise scale
+      blob_size_range: [30, 120]    # pixels
+      color_variation: 20           # HSV variation for green tones
+
+    building_shadow:
+      enabled: true
+      light:
+        coverage_min: 0.05
+        coverage_max: 0.20
+      medium:
+        coverage_min: 0.20
+        coverage_max: 0.40
+      heavy:
+        coverage_min: 0.40
+        coverage_max: 0.65
+      sun_angle_range: [30, 150]    # degrees from north
+      shadow_length_range: [0.5, 2.0]  # multiplier of building height proxy
+      darkening_factor: 0.35        # 0=black, 1=no change
+
+    vehicle:
+      enabled: true
+      light:
+        count_range: [1, 3]
+      medium:
+        count_range: [3, 8]
+      heavy:
+        count_range: [8, 20]
+      size_range_w: [8, 25]         # vehicle width in pixels
+      size_range_h: [15, 45]        # vehicle length in pixels
+
+    cloud_cover:
+      enabled: true
+      light:
+        coverage_min: 0.05
+        coverage_max: 0.20
+        opacity_range: [0.2, 0.5]
+      medium:
+        coverage_min: 0.20
+        coverage_max: 0.45
+        opacity_range: [0.5, 0.75]
+      heavy:
+        coverage_min: 0.45
+        coverage_max: 0.70
+        opacity_range: [0.75, 0.95]
+      blur_sigma_range: [20, 60]
+
+# ── Quality Analysis ──────────────────────────────────────────
+quality:
+  road_width_estimation:
+    enabled: true
+    method: "distance_transform"    # morphological distance transform on masks
+  compute_road_density: true
+  compute_class_imbalance: true
+  generate_charts: true
+
+# ── Visualization ─────────────────────────────────────────────
+visualization:
+  dpi: 150
+  figure_style: "dark_background"
+  colormap_roads: "plasma"
+  colormap_masks: "Greens"
+  save_format: "png"
+  show_grid: false
+
+# ── Geospatial Metadata ───────────────────────────────────────
+geospatial:
+  default_crs: "EPSG:4326"
+  store_crs: true
+  store_bounds: true
+  store_transform: true
+  store_resolution: true
+  metadata_format: "json"           # json | geojson
+
+# ── Logging ───────────────────────────────────────────────────
+logging:
+  level: "INFO"                     # DEBUG | INFO | WARNING | ERROR
+  log_to_file: true
+  log_dir: "logs"
+  max_bytes: 10485760               # 10 MB
+  backup_count: 5
+  format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
