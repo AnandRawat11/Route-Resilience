@@ -1,485 +1,875 @@
-ROUTE RESILIENCE - TECHNICAL MASTER GUIDE
+# ROUTE RESILIENCE
+## Complete Development Guide
+### AI-Powered Urban Road Network Extraction and Resilience Analysis System
 
-Project Objective
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
 
-Build an Urban Mobility Resilience Platform that:
+Problem Statement:
+Urban planners and disaster management authorities need accurate road maps from
+satellite imagery. Existing methods fail when roads are hidden by:
 
-1. Extracts roads from satellite imagery under heavy occlusion.
-2. Reconstructs missing road connectivity.
-3. Converts roads into a connected graph network.
-4. Identifies critical bottlenecks.
-5. Simulates infrastructure failures.
-6. Quantifies network resilience.
-7. Provides actionable planning recommendations.
+• Trees
+• Building shadows
+• Vehicles
+• Clouds
+• Dense urban clutter
 
-⸻
+Broken road extraction results in disconnected maps that are useless for:
 
-System Architecture
+• Disaster response
+• Traffic simulation
+• Emergency route planning
+• Urban infrastructure analysis
+
+Our objective is to build an end-to-end AI platform that can:
+
+1. Extract roads from satellite images
+2. Recover roads hidden by occlusions
+3. Convert road masks into a connected road graph
+4. Identify critical intersections and bottlenecks
+5. Simulate disasters and road failures
+6. Produce resilience analytics
+7. Provide an interactive dashboard
+
+================================================================================
+2. FINAL PRODUCT ARCHITECTURE
+================================================================================
 
 Satellite Image
-
-↓
-
-Occlusion-Aware Road Extraction
-
-↓
-
-Topology Reconstruction
-
-↓
-
-Road Skeletonization
-
-↓
-
-Road Graph Generation
-
-↓
-
-Graph Healing
-
-↓
-
+       ↓
+Data Preprocessing Pipeline
+       ↓
+Deep Learning Road Segmentation
+       ↓
+Road Mask Prediction
+       ↓
+Skeletonization
+       ↓
+Road Graph Construction
+       ↓
 Criticality Analysis
-
-↓
-
-Resilience Analysis
-
-↓
-
-Stress Testing
-
-↓
-
-Urban Resilience Decision Engine
-
-↓
-
+       ↓
+Failure Simulation
+       ↓
 Interactive Dashboard
+       ↓
+Resilience Reports
 
-⸻
+================================================================================
+3. TECHNOLOGY STACK
+================================================================================
 
-Technology Stack
+Programming Language
+--------------------
+Python
 
 Computer Vision
+---------------
+OpenCV
+NumPy
+Albumentations
+Rasterio
+GDAL
 
-* PyTorch
-* SegFormer
-* DeepLabV3+
-* Albumentations
+Deep Learning
+-------------
+PyTorch
+Torchvision
+segmentation-models-pytorch
+Transformers
 
-Geospatial Processing
+Graph Analytics
+---------------
+NetworkX
+OSMnx
 
-* Rasterio
-* GeoPandas
-* GDAL
-* Shapely
-* OSMnx
-
-Graph Processing
-
-* NetworkX
-* PyTorch Geometric
-
-Dashboard
-
-* Streamlit
-* Folium
-* Leaflet.js
+Visualization
+-------------
+Matplotlib
+Folium
+Leaflet.js
+Streamlit
 
 Backend
+-------
+FastAPI
 
-* FastAPI
+Deployment
+----------
+Docker
+AWS EC2
+AWS S3
 
-⸻
+================================================================================
+4. PROJECT PHASES
+================================================================================
 
-Phase 1 - Data Collection & Preprocessing
+PHASE 1
+DATA PIPELINE
+STATUS: COMPLETED
 
-Datasets
+PHASE 2
+OCCLUSION-AWARE ROAD EXTRACTION
+STATUS: TO DO
 
-Primary:
+PHASE 3
+TOPOLOGICAL RECONSTRUCTION
+STATUS: TO DO
 
-* SpaceNet 3 Road Network Detection
+PHASE 4
+STRUCTURAL INTELLIGENCE
+STATUS: TO DO
 
-Secondary:
+PHASE 5
+SIMULATED STRESS TESTING
+STATUS: TO DO
 
-* DeepGlobe Road Extraction
+PHASE 6
+DASHBOARD AND DEPLOYMENT
+STATUS: TO DO
 
-Supporting:
+================================================================================
+5. DATASET STRATEGY
+================================================================================
 
-* OpenStreetMap Road Vectors
+Dataset:
+DeepGlobe Road Extraction Dataset
 
-Final Evaluation:
+Approximate Size:
+4.1 GB
 
-* Cartosat-3
+Contents:
 
-Requirements
+Training Images:
+6226 satellite images
+6226 road masks
 
-* Data ingestion
-* Dataset validation
-* Metadata extraction
-* Image standardization
-* Tile generation
-* Train/Validation/Test split
-* Augmentation pipeline
-* Occlusion simulation
-* Dataset quality analysis
+Validation Images:
+1243 satellite images
 
-Metadata Requirements
+Test Images:
+1101 satellite images
 
-Preserve:
+Image Resolution:
+1024 × 1024 pixels
 
-* CRS
-* Bounds
-* Affine Transform
-* Resolution
+Road Mask:
+White pixels = Road
+Black pixels = Background
 
-Support:
+================================================================================
+WHY DEEPGLOBE IS ENOUGH
+================================================================================
 
-* GeoJSON
-* Shapefile
+6226 images are sufficient for training segmentation models.
+
+After tiling:
+
+6226 images
+↓
+
+Each image produces approximately 9 tiles
+
+↓
+
+More than 50,000 training samples
+
+This is enough for:
+
+• U-Net
+• U-Net++
+• DeepLabV3+
+• SegFormer fine-tuning
+
+There is no need to download additional datasets right now.
+
+================================================================================
+6. STORAGE STRATEGY
+================================================================================
+
+Available Storage:
+70 GB
+
+Never store every intermediate dataset permanently.
+
+Keep Permanently:
+
+data/raw/deepglobe/
+models/
+outputs/
+configs/
+src/
+
+Temporary Directories:
+
+data/processed/
+data/tiles/
+data/cache/
+
+Generate temporary files only when needed.
+
+Delete them after successful training.
+
+This significantly reduces storage requirements.
+
+================================================================================
+7. PROJECT STRUCTURE
+================================================================================
+
+Route-Resilience/
+
+├── apps
+│   ├── api
+│   └── dashboard
+│
+├── configs
+│
+├── data
+│   ├── raw
+│   │   └── deepglobe
+│   │       ├── train
+│   │       ├── valid
+│   │       └── test
+│   │
+│   ├── processed
+│   ├── tiles
+│   ├── metadata
+│   └── cache
+│
+├── docs
+│
+├── models
+│   ├── checkpoints
+│   └── weights
+│
+├── outputs
+│   ├── masks
+│   ├── graphs
+│   ├── simulations
+│   └── analytics
+│
+├── scripts
+│
+├── src
+│   ├── core
+│   ├── data
+│   ├── segmentation
+│   ├── topology
+│   ├── graph
+│   ├── simulation
+│   ├── analytics
+│   ├── api
+│   └── visualization
+│
+├── notebooks
+├── requirements.txt
+└── README.md
+
+================================================================================
+PHASE 1
+DATA PIPELINE
+================================================================================
+
+Objective:
+Prepare the dataset for deep learning.
+
+STEP 1
+Dataset Ingestion
+
+Tasks:
+
+• Scan dataset directories
+• Verify image-mask pairs
+• Generate metadata reports
+• Validate file integrity
+
+Input:
+
+Satellite Images
+Road Masks
+
+Output:
+
+dataset_report.json
+master_dataset.csv
+
+------------------------------------------------------------
+
+STEP 2
+Standardization
+
+Tasks:
+
+• RGB conversion
+• Metadata extraction
+• Image normalization
+• Directory organization
+
+Output:
+
+Standardized images and masks
+
+------------------------------------------------------------
+
+STEP 3
+Tiling
+
+Objective:
+
+Convert large images into smaller patches.
+
+Input Size:
+1024 × 1024
+
+Tile Size:
+512 × 512
+
+Stride:
+256
+
+Why?
+
+Deep learning models train more efficiently on smaller patches.
+
+Output:
+
+More than 50,000 tiles
+
+------------------------------------------------------------
+
+STEP 4
+Data Augmentation
+
+Techniques:
+
+Horizontal Flip
+Vertical Flip
+Rotation
+Brightness Adjustment
+Contrast Adjustment
+
+Purpose:
+
+Increase data diversity and improve generalization.
+
+------------------------------------------------------------
+
+STEP 5
+Artificial Occlusion Generation
 
 Generate:
 
-* master_dataset.csv
-* dataset_report.json
-* quality_report.json
+Tree Occlusion
+Shadow Occlusion
+Cloud Occlusion
+Vehicle Occlusion
 
-⸻
+Purpose:
 
-Phase 2 - Occlusion-Aware Road Extraction
+Teach the model to recover roads hidden beneath objects.
 
-Models
+------------------------------------------------------------
 
-Baseline:
-
-* DeepLabV3+
-
-Primary:
-
-* SegFormer
-
-Ablation:
-
-* U-Net++
-
-Input
-
-Satellite Image
-
-Output
-
-Road Probability Mask
-
-Augmentations
-
-Standard:
-
-* Horizontal Flip
-* Vertical Flip
-* Rotation
-* Brightness
-* Contrast
-* Blur
-* Gaussian Noise
-
-Occlusion-Based:
-
-* Tree Canopy
-* Building Shadow
-* Vehicle Occlusion
-* Cloud Cover
-
-Occlusion Severity:
-
-* Light
-* Medium
-* Heavy
-
-⸻
-
-Loss Function
-
-Final Loss =
-
-Dice Loss
-+
-Binary Cross Entropy
-+
-Boundary Loss
-+
-Connectivity Loss
-
-Objective:
-
-Preserve road continuity and topological connectivity.
-
-⸻
-
-Phase 3 - Topology Reconstruction
-
-Objective:
-
-Recover road continuity under severe occlusion.
-
-Methods:
-
-* Morphological Closing
-* Endpoint Detection
-* Direction Matching
-* Gap Bridging
-* Connectivity Recovery
-
-Optional Innovation:
-
-Graph Neural Network based gap prediction.
-
-Input:
-
-Disconnected endpoints.
-
-Output:
-
-Connection probability.
-
-⸻
-
-Phase 4 - Road Skeletonization
-
-Convert road masks into centerlines.
-
-Tool:
-
-skimage.morphology.skeletonize()
-
-Output:
-
-Single-pixel road centerlines.
-
-⸻
-
-Phase 5 - Road Graph Generation
-
-Convert centerlines into graph structure.
-
-Nodes
-
-* Intersections
-* Endpoints
-
-Edges
-
-* Road Segments
-
-Library:
-
-* NetworkX
-
-⸻
-
-Phase 6 - Topological Healing
-
-Objective:
-
-Reconnect disconnected graph components.
-
-Similarity Metrics
-
-* Euclidean Distance
-* Angular Alignment
-* Road Width Similarity
-
-Algorithms
-
-* Minimum Spanning Tree (MST)
-* Union Find (Disjoint Set)
-
-Output
-
-Connected road graph with confidence scores for healed connections.
-
-⸻
-
-Phase 7 - Criticality Analysis
-
-Metrics
-
-* Betweenness Centrality
-* Edge Betweenness Centrality
-* Closeness Centrality
-* Eigenvector Centrality
-
-Criticality Score
-
-Criticality Score =
-0.5 × Betweenness +
-0.2 × Edge Betweenness +
-0.2 × Closeness +
-0.1 × Eigenvector
-
-Output
-
-Criticality Heatmap.
-
-⸻
-
-Phase 8 - Resilience Analysis
-
-Metrics
-
-* Network Efficiency
-* Reachability
-* Connected Components
-* Average Shortest Path Length
-
-Output
-
-Resilience Index (0-100)
-
-Classification:
-
-* 90-100 → Highly Resilient
-* 70-89 → Moderately Resilient
-* Below 70 → Vulnerable
-
-⸻
-
-Phase 9 - Disaster Stress Testing
-
-Scenarios
-
-* Single Junction Failure
-* Road Segment Failure
-* Localized Flood Zone
-* Bridge Collapse
-* Multi-Node Cascade Failure
-
-Actions
-
-* Remove Nodes
-* Remove Edges
-* Recalculate Network
-
-Outputs
-
-* Connectivity Loss
-* Travel Time Increase
-* Reachability Reduction
-* Resilience Degradation
-
-⸻
-
-Phase 10 - Facility Impact Analysis
-
-Facilities:
-
-* Hospitals
-* Schools
-* Fire Stations
-* Food Distribution Centers
+STEP 6
+Quality Analysis
 
 Metrics:
 
-* Facility Reachability
-* Accessibility Loss
-* Service Disruption
+Road Density
+Road Width Distribution
+Tile Quality
+Class Distribution
 
-Outputs:
+------------------------------------------------------------
 
-* Affected Facilities
-* Isolated Facilities
-* Accessibility Impact
+STEP 7
+Visualization
 
-⸻
+Generate:
 
-Phase 11 - Urban Resilience Decision Engine
+Tile Galleries
+Augmentation Previews
+Occlusion Galleries
+Dataset Reports
 
-Generate recommendations based on graph vulnerability.
+OUTPUT OF PHASE 1
 
-Examples:
+Ready-to-train dataset.
 
-* Alternate Route Suggestions
-* Emergency Access Routes
-* Redundancy Planning
-* Infrastructure Upgrade Suggestions
+================================================================================
+PHASE 2
+OCCLUSION-AWARE ROAD EXTRACTION
+================================================================================
+
+Objective:
+
+Convert satellite images into continuous road masks.
+
+================================================================================
+STEP 1
+LEARN DEEP LEARNING BASICS
+================================================================================
+
+Topics:
+
+Perceptron
+Forward Propagation
+Backpropagation
+Loss Functions
+Gradient Descent
+Activation Functions
+Optimizers
+
+Understand:
+
+Input
+↓
+
+Prediction
+↓
+
+Error Calculation
+↓
+
+Weight Update
+↓
+
+Repeat
+
+================================================================================
+STEP 2
+LEARN CONVOLUTIONAL NEURAL NETWORKS
+================================================================================
+
+Topics:
+
+Convolution
+Filters
+Feature Maps
+Padding
+Strides
+Pooling
+Flatten Layer
+Transfer Learning
+
+Understand:
+
+Image
+↓
+
+Convolution
+↓
+
+Features
+↓
+
+Prediction
+
+================================================================================
+STEP 3
+LEARN PYTORCH
+================================================================================
+
+Topics:
+
+Tensors
+Dataset Class
+DataLoader
+GPU Training
+Training Loop
+Saving Models
+Loading Models
+
+Essential Concepts:
+
+Dataset
+↓
+
+DataLoader
+↓
+
+Model
+↓
+
+Loss Function
+↓
+
+Optimizer
+↓
+
+Backpropagation
+↓
+
+Model Update
+
+================================================================================
+STEP 4
+BUILD BASELINE MODEL
+================================================================================
+
+Model:
+U-Net
 
 Input:
 
-Criticality Analysis + Stress Testing Results
+Satellite Image
 
 Output:
 
-Actionable planning recommendations.
+Road Mask
 
-⸻
+Architecture:
 
-Phase 12 - Interactive Dashboard
+Image
+↓
 
-Modules:
+Encoder
+↓
 
-1. Satellite Imagery
-2. Extracted Roads
-3. Road Graph
-4. Criticality Heatmap
-5. Resilience Heatmap
-6. Disaster Simulator
-7. Facility Impact Analysis
-8. Decision Engine Recommendations
+Bottleneck
+↓
 
-⸻
+Decoder
+↓
 
-Evaluation Metrics
+Road Mask
 
-Segmentation
+Train Using:
 
-* IoU
-* Dice Score
-* Precision
-* Recall
+Binary Cross Entropy Loss
+Dice Loss
 
-Connectivity
+Metrics:
 
-* Largest Connected Component Ratio
-* Connectivity Gain After Healing
-* Connected Components Count
+IoU
+Dice Score
+Precision
+Recall
 
-Graph Quality
+================================================================================
+STEP 5
+IMPROVE MODEL
+================================================================================
 
-* Path Completeness
-* Topological Accuracy
-* Average Path Length Error
+Train:
 
-Resilience
+1. U-Net
+2. U-Net++
+3. DeepLabV3+
+4. SegFormer
 
-* Reachability
-* Network Efficiency
-* Resilience Index
+Recommended Progression:
 
-⸻
+U-Net
+↓
 
-Development Priority
+DeepLabV3+
+↓
 
-Priority 1:
+SegFormer
 
-* SegFormer
-* Skeletonization
-* Graph Generation
+SegFormer should be your final production model.
 
-Priority 2:
+================================================================================
+OUTPUT OF PHASE 2
+================================================================================
 
-* Graph Healing
-* Criticality Analysis
-* Resilience Analysis
+Satellite Image
+↓
 
-Priority 3:
+AI Model
+↓
 
-* Disaster Simulation
-* Facility Impact Analysis
-* Decision Engine
+Continuous Road Mask
 
-Priority 4:
+================================================================================
+PHASE 3
+TOPOLOGICAL RECONSTRUCTION
+================================================================================
 
-* Dashboard
-* Visualization
-* Presentation Layer
+Objective:
+
+Convert pixel masks into a connected road network.
+
+================================================================================
+STEP 1
+SKELETONIZATION
+================================================================================
+
+Before:
+
+██████████
+██████████
+██████████
+
+After:
+
+──────────
+
+Why?
+
+Computers cannot perform graph analysis on thick pixels.
+
+Need:
+
+Single-pixel road centerlines.
+
+Libraries:
+
+OpenCV
+scikit-image
+
+================================================================================
+STEP 2
+GRAPH CONSTRUCTION
+================================================================================
+
+Nodes:
+
+Intersections
+
+Edges:
+
+Road Segments
+
+Example:
+
+A ----- B ----- C
+        |
+        D
+
+Libraries:
+
+NetworkX
+OSMnx
+
+Output:
+
+Connected road graph.
+
+================================================================================
+PHASE 4
+STRUCTURAL INTELLIGENCE
+================================================================================
+
+Objective:
+
+Find critical roads and bottlenecks.
+
+Example:
+
+A ----- B ----- C
+        |
+        D
+
+If B fails:
+
+A       C
+        D
+
+B becomes a critical node.
+
+Algorithms:
+
+Betweenness Centrality
+Degree Centrality
+Connected Components
+Shortest Paths
+
+Outputs:
+
+Criticality Heatmap
+Gatekeeper Nodes
+Important Intersections
+Risk Scores
+
+================================================================================
+PHASE 5
+SIMULATED STRESS TESTING
+================================================================================
+
+Objective:
+
+Predict the impact of road failures.
+
+Scenarios:
+
+Flood
+Bridge Collapse
+Road Construction
+Accident
+Landslide
+
+Procedure:
+
+Remove Node
+↓
+
+Recompute Graph
+↓
+
+Measure Connectivity Loss
+↓
+
+Calculate Resilience Score
+
+Metrics:
+
+Connectivity Ratio
+Travel Distance Increase
+Reachability Score
+Resilience Index
+
+Outputs:
+
+Failure Maps
+Impact Reports
+Resilience Analytics
+
+================================================================================
+PHASE 6
+INTERACTIVE DASHBOARD
+================================================================================
+
+Backend:
+
+FastAPI
+
+Frontend:
+
+Streamlit
+
+Features:
+
+Upload Satellite Image
+↓
+
+Generate Road Mask
+↓
+
+Generate Road Graph
+↓
+
+Highlight Bottlenecks
+↓
+
+Simulate Disasters
+↓
+
+Generate Reports
+↓
+
+Download Analytics
+
+================================================================================
+EVALUATION METRICS
+================================================================================
+
+Segmentation Metrics:
+
+IoU
+Dice Score
+Precision
+Recall
+
+Generalization Metrics:
+
+Urban Areas
+Rural Areas
+Forested Regions
+
+Topology Metrics:
+
+Connectivity Ratio
+Average Path Length Error
+Topological Accuracy
+
+Simulation Metrics:
+
+Resilience Index
+Travel Time Increase
+Accessibility Loss
+
+================================================================================
+FINAL DELIVERABLE
+================================================================================
+
+An AI-powered urban resilience platform capable of:
+
+1. Extracting roads from satellite imagery
+2. Recovering roads hidden under occlusions
+3. Building connected road networks
+4. Identifying bottlenecks and gatekeeper intersections
+5. Simulating infrastructure failures
+6. Generating resilience analytics
+7. Providing an interactive GIS dashboard for planners and disaster management agencies
+
+================================================================================
+LEARNING ROADMAP
+================================================================================
+
+Python
+↓
+NumPy
+↓
+OpenCV
+↓
+Deep Learning Fundamentals
+↓
+CNN
+↓
+PyTorch
+↓
+U-Net
+↓
+DeepLabV3+
+↓
+SegFormer
+↓
+NetworkX
+↓
+FastAPI
+↓
+Streamlit
+↓
+Docker
+↓
+AWS
+
+================================================================================
+DEVELOPMENT STRATEGY
+================================================================================
+
+Do not try to learn everything first.
+
+Learn only enough for the current phase.
+
+Immediately implement that phase.
+
+Then move to the next phase.
+
+Build incrementally:
+
+Learn
+↓
+
+Implement
+↓
+
+Test
+↓
+
+Improve
+↓
+
+Deploy
+
+This project is essentially three projects combined:
+
+1. Computer Vision
+2. Deep Learning
+3. Graph Analytics
+
+At the end, it becomes a production-grade AI + GIS platform suitable for both a hackathon and a strong final-year resume project.

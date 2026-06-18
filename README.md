@@ -109,6 +109,15 @@ jupyter notebook 01_pipeline_demo.ipynb
 
 ---
 
+## Documentation
+
+`docs/`
+├── `architecture.md`      # System architecture and design decisions
+├── `guide.md`             # Complete development and implementation guide
+└── `problem.md`           # Detailed problem statement and domain context
+
+---
+
 ## Directory Structure
 
 ```
