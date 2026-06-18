@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-06-18T22:30:31",
+  "total_tiles_generated": 44668,
+  "tiles_kept": 35099,
+  "tiles_discarded": 9569,
+  "keep_rate_pct": 78.58,
+  "tile_size": 512,
+  "stride": 256,
+  "overlap_pct": 50.0,
+  "max_tiles_per_image": 6,
+  "road_pixel_pct_in_kept": {
+    "mean": 5.6331,
+    "std": 5.0793,
+    "min": 0.0103,
+    "max": 41.9498
+  },
+  "by_split": {
+    "train": {
+      "kept": 35099
+    }
+  }
+}

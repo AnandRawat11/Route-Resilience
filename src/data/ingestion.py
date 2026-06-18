@@ -8,6 +8,11 @@ Step 1: Data Ingestion
   - Detect missing masks
   - Compute per-dataset statistics
   - Output: outputs/reports/dataset_report.json
+
+Adapter dispatch:
+  If a dataset config has use_adapter: true, the scanner delegates
+  to the corresponding adapter (e.g. DeepGlobeAdapter) instead of
+  using the generic images/ + masks/ directory scan.
 """
 
 from __future__ import annotations
@@ -58,6 +63,8 @@ class ImageRecord:
     md5_image: str
     md5_mask: Optional[str]
     validation_errors: List[str] = field(default_factory=list)
+    # Optional: set by adapters that know the official split
+    split: Optional[str] = field(default=None)
 
     def is_valid(self) -> bool:
         return len(self.validation_errors) == 0
@@ -123,7 +130,10 @@ class DatasetScanner:
         for source_name, source_cfg in enabled_sources:
             logger.info(f"Scanning dataset: {source_name}")
             try:
-                records = self._scan_source(source_name, source_cfg)
+                if source_cfg.get("use_adapter", False):
+                    records = self._scan_via_adapter(source_name, source_cfg)
+                else:
+                    records = self._scan_source(source_name, source_cfg)
                 all_records.extend(records)
                 logger.info(
                     f"  {source_name}: {len(records)} records "
@@ -134,6 +144,24 @@ class DatasetScanner:
 
         logger.info(f"Total records found: {len(all_records)}")
         return all_records
+
+    def _scan_via_adapter(
+        self, source_name: str, source_cfg: Dict[str, Any]
+    ) -> List[ImageRecord]:
+        """Delegate scanning to a dataset-specific adapter."""
+        adapter_name = source_cfg.get("adapter", source_name)
+        active_splits = source_cfg.get("active_splits", None)
+
+        if adapter_name == "deepglobe":
+            from src.data.adapters.deepglobe_adapter import DeepGlobeAdapter
+            adapter = DeepGlobeAdapter(self.config)
+            return adapter.scan(active_splits=active_splits)
+        else:
+            logger.warning(
+                f"Unknown adapter '{adapter_name}' for dataset '{source_name}'. "
+                "Falling back to generic scanner."
+            )
+            return self._scan_source(source_name, source_cfg)
 
     def generate_report(self, records: List[ImageRecord]) -> Dict[str, Any]:
         """

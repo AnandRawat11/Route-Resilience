@@ -1,0 +1,99 @@
+{
+  "__version__": "2.0.8",
+  "transform": {
+    "__class_fullname__": "Compose",
+    "p": 1.0,
+    "transforms": [
+      {
+        "__class_fullname__": "HorizontalFlip",
+        "p": 0.5
+      },
+      {
+        "__class_fullname__": "VerticalFlip",
+        "p": 0.5
+      },
+      {
+        "__class_fullname__": "RandomRotate90",
+        "p": 0.5
+      },
+      {
+        "__class_fullname__": "ShiftScaleRotate",
+        "p": 0.5,
+        "shift_limit_x": [
+          -0.0625,
+          0.0625
+        ],
+        "shift_limit_y": [
+          -0.0625,
+          0.0625
+        ],
+        "scale_limit": [
+          -0.19999999999999996,
+          0.19999999999999996
+        ],
+        "rotate_limit": [
+          -45.0,
+          45.0
+        ],
+        "interpolation": 1,
+        "border_mode": 4,
+        "fill": 0.0,
+        "fill_mask": 0.0,
+        "rotate_method": "largest_box",
+        "mask_interpolation": 0
+      },
+      {
+        "__class_fullname__": "RandomBrightnessContrast",
+        "p": 0.5,
+        "brightness_by_max": true,
+        "brightness_limit": [
+          -0.3,
+          0.3
+        ],
+        "contrast_limit": [
+          -0.3,
+          0.3
+        ],
+        "ensure_safe_range": false
+      },
+      {
+        "__class_fullname__": "GaussNoise",
+        "p": 0.3,
+        "mean_range": [
+          0.0,
+          0.0
+        ],
+        "noise_scale_factor": 1.0,
+        "per_channel": true,
+        "std_range": [
+          0.2,
+          0.44
+        ]
+      },
+      {
+        "__class_fullname__": "Blur",
+        "p": 0.3,
+        "blur_limit": [
+          3,
+          3
+        ]
+      },
+      {
+        "__class_fullname__": "CLAHE",
+        "p": 0.3,
+        "clip_limit": [
+          1.0,
+          4.0
+        ],
+        "tile_grid_size": [
+          8,
+          8
+        ]
+      }
+    ],
+    "bbox_params": null,
+    "keypoint_params": null,
+    "additional_targets": {},
+    "is_check_shapes": true
+  }
+}

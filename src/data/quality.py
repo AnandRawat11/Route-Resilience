@@ -111,11 +111,14 @@ class QualityAnalyzer:
         occlusion_results: Optional[List[Any]],
     ) -> List[Dict[str, Any]]:
         """Compute per-tile quality metrics including road width."""
-        all_tiles = (
-            [(t, "train") for t in train]
-            + [(t, "val") for t in val]
-            + [(t, "test") for t in test]
-        )
+        # Combine all tiles; determine split from tile.split attribute if available
+        all_tiles_with_split = []
+        for t in train:
+            all_tiles_with_split.append((t, getattr(t, "split", "train")))
+        for t in val:
+            all_tiles_with_split.append((t, getattr(t, "split", "val")))
+        for t in test:
+            all_tiles_with_split.append((t, getattr(t, "split", "test")))
 
         # Build occlusion lookup: tile_id → OcclusionResult
         occ_lookup: Dict[str, Any] = {}
@@ -124,7 +127,7 @@ class QualityAnalyzer:
                 occ_lookup[occ.image_id] = occ
 
         rows = []
-        for tile, split in all_tiles:
+        for tile, split in all_tiles_with_split:
             row: Dict[str, Any] = {
                 "tile_id": tile.tile_id,
                 "source_dataset": tile.source_dataset,
@@ -240,9 +243,8 @@ class QualityAnalyzer:
             "total_records": len(records),
             "total_tiles": len(tile_rows),
             "split_counts": {
-                "train": len(train),
-                "val": len(val),
-                "test": len(test),
+                sp: sum(1 for r in tile_rows if r["split"] == sp)
+                for sp in sorted({r["split"] for r in tile_rows})
             },
             "road_pixel_percentage": safe_stat(road_pcts),
             "background_pixel_percentage": safe_stat(bg_pcts),
@@ -386,9 +388,9 @@ class QualityAnalyzer:
         ax4 = fig.add_subplot(gs[1, 0])
         splits = ["Train", "Val", "Test"]
         counts = [
-            report["split_counts"]["train"],
-            report["split_counts"]["val"],
-            report["split_counts"]["test"],
+            report["split_counts"].get("train", 0),
+            report["split_counts"].get("val", 0),
+            report["split_counts"].get("test", 0),
         ]
         colors = ["#7b68ee", "#00d4aa", "#ff6b6b"]
         bars = ax4.bar(splits, counts, color=colors, edgecolor="#333")

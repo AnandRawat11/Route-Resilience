@@ -1,0 +1,49 @@
+{
+  "total_samples": 20,
+  "by_occlusion_type": {
+    "tree_canopy": {
+      "count": 5,
+      "coverage_pct_mean": 35.49,
+      "coverage_pct_std": 21.5,
+      "road_coverage_pct_mean": 42.65
+    },
+    "building_shadow": {
+      "count": 5,
+      "coverage_pct_mean": 34.84,
+      "coverage_pct_std": 16.25,
+      "road_coverage_pct_mean": 25.67
+    },
+    "vehicle": {
+      "count": 5,
+      "coverage_pct_mean": 0.86,
+      "coverage_pct_std": 0.65,
+      "road_coverage_pct_mean": 9.24
+    },
+    "cloud_cover": {
+      "count": 5,
+      "coverage_pct_mean": 33.33,
+      "coverage_pct_std": 12.63,
+      "road_coverage_pct_mean": 18.9
+    }
+  },
+  "by_severity": {
+    "light": {
+      "count": 7,
+      "coverage_pct_mean": 10.66,
+      "coverage_pct_std": 7.98,
+      "road_coverage_pct_mean": 8.05
+    },
+    "medium": {
+      "count": 7,
+      "coverage_pct_mean": 31.78,
+      "coverage_pct_std": 13.27,
+      "road_coverage_pct_mean": 28.37
+    },
+    "heavy": {
+      "count": 6,
+      "coverage_pct_mean": 37.6,
+      "coverage_pct_std": 26.87,
+      "road_coverage_pct_mean": 37.88
+    }
+  }
+}

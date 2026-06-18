@@ -1,0 +1,85 @@
+{
+  "generated_at": "2026-06-18T22:36:32",
+  "total_records": 6226,
+  "total_tiles": 35099,
+  "split_counts": {
+    "train": 35099
+  },
+  "road_pixel_percentage": {
+    "mean": 5.6331,
+    "std": 5.0793,
+    "min": 0.0103,
+    "max": 41.9498
+  },
+  "background_pixel_percentage": {
+    "mean": 94.3669,
+    "std": 5.0793,
+    "min": 58.0502,
+    "max": 99.9897
+  },
+  "class_imbalance": {
+    "road_pct_mean": 5.6331,
+    "background_pct_mean": 94.3669,
+    "imbalance_ratio_bg_to_road": 16.75,
+    "recommendation": "Severe class imbalance detected. Consider weighted loss (Dice + BCE) or oversampling road-heavy tiles."
+  },
+  "road_width_statistics": {
+    "avg_road_width_px": {
+      "mean": 7.125,
+      "std": 3.0951,
+      "min": 2.5,
+      "max": 61.12
+    },
+    "max_road_width_px": {
+      "mean": 21.9444,
+      "std": 12.6295,
+      "min": 4.0,
+      "max": 210.13
+    },
+    "method": "distance_transform",
+    "note": "Road width estimated via distance transform (2\u00d7 inscribed circle radius). Used for future weighted graph construction."
+  },
+  "road_density": {
+    "mean": 0.0563,
+    "std": 0.0508,
+    "min": 0.0001,
+    "max": 0.4195
+  },
+  "occlusion_summary": {
+    "total_occluded_samples": 20,
+    "coverage_pct": {
+      "mean": 26.132,
+      "std": 20.8566,
+      "min": 0.15,
+      "max": 73.8
+    },
+    "road_coverage_pct": {
+      "mean": 24.114,
+      "std": 23.2378,
+      "min": 0.0,
+      "max": 75.96
+    },
+    "by_severity": {
+      "medium": {
+        "count": 7,
+        "avg_road_coverage_pct": 28.37
+      },
+      "light": {
+        "count": 7,
+        "avg_road_coverage_pct": 8.05
+      },
+      "heavy": {
+        "count": 6,
+        "avg_road_coverage_pct": 37.88
+      }
+    }
+  },
+  "image_size_distribution": {
+    "tile_width": {
+      "fixed": 512
+    },
+    "tile_height": {
+      "fixed": 512
+    }
+  }
+}

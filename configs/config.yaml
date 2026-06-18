@@ -13,60 +13,63 @@ project:
 # ── Dataset Paths ─────────────────────────────────────────────
 datasets:
   spacenet:
-    enabled: true
+    enabled: false
     raw_dir: "data/raw/spacenet"
-    image_subdir: "images"          # subdirectory containing .tif files
-    mask_subdir: "masks"            # subdirectory containing mask files
+    image_subdir: "images"
+    mask_subdir: "masks"
     image_extensions: [".tif", ".tiff", ".png"]
     mask_extensions: [".tif", ".tiff", ".png"]
-    description: "SpaceNet Roads Dataset (Vegas, Paris, Shanghai, Khartoum)"
+    description: "SpaceNet Roads Dataset (not available in Phase 1)"
 
   deepglobe:
     enabled: true
-    raw_dir: "data/raw/deepglobe"
-    image_subdir: "images"
-    mask_subdir: "masks"
-    image_extensions: [".jpg", ".png", ".tif"]
-    mask_extensions: [".png", ".tif"]
-    description: "DeepGlobe Road Extraction Dataset"
+    use_adapter: true            # Use DeepGlobeAdapter instead of generic scanner
+    adapter: "deepglobe"
+    raw_dir: "data/raw/deepglobe"   # symlink → DeepGlobe Road Extraction Dataset/
+    description: "DeepGlobe Road Extraction Dataset (Kaggle)"
+    # Phase 1: only tile the train split (valid/test have no masks)
+    active_splits:
+      - train
 
   opensatmap:
-    enabled: true
+    enabled: false
     raw_dir: "data/raw/opensatmap"
     image_subdir: "images"
     mask_subdir: "masks"
-    image_extensions: [".png", ".jpg", ".tif"]
-    mask_extensions: [".png", ".tif"]
-    description: "OpenSatMap Dataset"
+    description: "OpenSatMap Dataset (not available in Phase 1)"
 
   osm:
-    enabled: true
+    enabled: false
     raw_dir: "data/raw/osm"
-    vector_subdir: "vectors"        # .geojson or .shp road vectors
-    description: "OpenStreetMap-derived road masks"
-    buffer_meters: 3.0              # road buffer width for mask generation
+    vector_subdir: "vectors"
+    description: "OpenStreetMap (not available in Phase 1)"
 
   cartosat:
-    enabled: false                  # Enable when Cartosat-3 data is available
+    enabled: false
     raw_dir: "data/raw/cartosat"
     image_subdir: "images"
     mask_subdir: "masks"
-    image_extensions: [".tif", ".tiff"]
-    description: "Cartosat-3 High Resolution Imagery (future)"
+    description: "Cartosat-3 (future)"
 
-# ── Processed Output Paths ────────────────────────────────────
+# ── Processed Output Paths ─────────────────────────────────────
 paths:
-  processed_images: "data/processed/images"
-  processed_masks: "data/processed/masks"
-  processed_metadata: "data/processed/metadata"
-  tiles_images: "data/tiles/images"
-  tiles_masks: "data/tiles/masks"
-  train_images: "data/train/images"
-  train_masks: "data/train/masks"
-  val_images: "data/val/images"
-  val_masks: "data/val/masks"
-  test_images: "data/test/images"
-  test_masks: "data/test/masks"
+  # NOTE: data/processed/ is intentionally NOT used in Phase 1.
+  # Standardization is done in-memory. No disk copies of raw images.
+  processed_images: "data/processed/images"       # reserved for future use
+  processed_masks: "data/processed/masks"         # reserved for future use
+  processed_metadata: "data/processed/metadata"   # reserved for future use
+
+  # Split-aware tile directories (Phase 1 outputs)
+  tiles_root: "data/tiles"
+  tiles_train_images: "data/tiles/train/images"
+  tiles_train_masks: "data/tiles/train/masks"
+  tiles_valid_images: "data/tiles/valid/images"   # populated in later phase
+  tiles_test_images: "data/tiles/test/images"     # populated in later phase
+
+  # Legacy flat paths (used by quality/visualization modules — kept for compat)
+  tiles_images: "data/tiles/train/images"
+  tiles_masks: "data/tiles/train/masks"
+
   reports: "outputs/reports"
   visualizations: "outputs/visualizations"
   occlusion_samples: "outputs/occlusion_samples"
@@ -74,37 +77,49 @@ paths:
 
 # ── Image Standardization ─────────────────────────────────────
 standardization:
-  target_channels: 3                # Output RGB
-  target_dtype: "uint8"             # 8-bit output for PNG
-  percentile_low: 2                 # For 16-bit → 8-bit stretch
+  target_channels: 3
+  target_dtype: "uint8"
+  percentile_low: 2
   percentile_high: 98
-  resize_enabled: false             # Resize large images before tiling
-  max_dimension: 4096               # Max width/height if resize_enabled
-  interpolation: "lanczos"          # For images: lanczos; masks: nearest
-  normalize_float: true             # Also save [0,1] float32 for training
+  resize_enabled: false
+  max_dimension: 4096
+  interpolation: "lanczos"
+  # IMPORTANT: skip_save=true → in-memory only. No files written to data/processed/.
+  skip_save: true
+  normalize_float: false         # No _float32.npy files ever saved
 
 # ── Tiling ───────────────────────────────────────────────────
 tiling:
   tile_size: 512                    # pixels
   stride: 256                       # 50% overlap
-  pad_mode: "reflect"               # reflect | constant
-  pad_value: 0                      # for constant pad mode
-  min_road_pixel_pct: 0.5           # discard tiles below this road %
-  min_image_std: 5.0                # discard nearly-blank tiles (0-255 range)
+  pad_mode: "reflect"
+  pad_value: 0
+  min_road_pixel_pct: 0.01          # discard tiles with < 0.01% road pixels
+  min_image_std: 5.0                # discard near-blank tiles
+  max_tiles_per_image: 6            # cap tile count per source image
   save_tile_info: true
+
+  # Compression (saves ~40% storage vs PNG without quality loss for training)
+  image_format: "jpg"               # JPEG for image tiles
+  image_quality: 85                 # JPEG quality (85 = excellent for CV tasks)
+  mask_format: "png"                # PNG for masks (lossless required)
+  mask_compression: 9               # PNG compression level (max)
+
+  # Storage guard — abort if free disk space drops below this threshold
+  storage_guard_gb: 15.0
 
 # ── Dataset Splitting ─────────────────────────────────────────
 splitting:
-  train_ratio: 0.70
+  # DeepGlobe provides official splits. Do NOT run splitting.py.
+  skip: true
+  train_ratio: 0.70                 # reference only — not applied
   val_ratio: 0.15
   test_ratio: 0.15
-  stratify_by_source: true          # Maintain dataset source ratio across splits
-  allow_empty_splits: false
 
 # ── Augmentation ─────────────────────────────────────────────
 augmentation:
   enabled: true
-  preview_count: 8                  # Number of augmented samples to generate for preview
+  preview_count: 8
   pipeline:
     horizontal_flip:
       p: 0.5
@@ -134,11 +149,11 @@ augmentation:
 # ── Occlusion Simulation ──────────────────────────────────────
 occlusion:
   enabled: true
-  samples_to_generate: 20           # Number of occlusion sample visualizations
+  # Save only 20 representative samples. All others generated on-the-fly during training.
+  samples_to_generate: 20
   types:
     tree_canopy:
       enabled: true
-      # Severity thresholds (fraction of road pixels occluded)
       light:
         coverage_min: 0.10
         coverage_max: 0.25
@@ -148,9 +163,9 @@ occlusion:
       heavy:
         coverage_min: 0.50
         coverage_max: 0.75
-      noise_scale: 0.05             # Perlin noise scale
-      blob_size_range: [30, 120]    # pixels
-      color_variation: 20           # HSV variation for green tones
+      noise_scale: 0.05
+      blob_size_range: [30, 120]
+      color_variation: 20
 
     building_shadow:
       enabled: true
@@ -163,9 +178,9 @@ occlusion:
       heavy:
         coverage_min: 0.40
         coverage_max: 0.65
-      sun_angle_range: [30, 150]    # degrees from north
-      shadow_length_range: [0.5, 2.0]  # multiplier of building height proxy
-      darkening_factor: 0.35        # 0=black, 1=no change
+      sun_angle_range: [30, 150]
+      shadow_length_range: [0.5, 2.0]
+      darkening_factor: 0.35
 
     vehicle:
       enabled: true
@@ -175,8 +190,8 @@ occlusion:
         count_range: [3, 8]
       heavy:
         count_range: [8, 20]
-      size_range_w: [8, 25]         # vehicle width in pixels
-      size_range_h: [15, 45]        # vehicle length in pixels
+      size_range_w: [8, 25]
+      size_range_h: [15, 45]
 
     cloud_cover:
       enabled: true
@@ -198,7 +213,7 @@ occlusion:
 quality:
   road_width_estimation:
     enabled: true
-    method: "distance_transform"    # morphological distance transform on masks
+    method: "distance_transform"
   compute_road_density: true
   compute_class_imbalance: true
   generate_charts: true
@@ -211,6 +226,7 @@ visualization:
   colormap_masks: "Greens"
   save_format: "png"
   show_grid: false
+  max_visualizations: 10
 
 # ── Geospatial Metadata ───────────────────────────────────────
 geospatial:
@@ -219,13 +235,13 @@ geospatial:
   store_bounds: true
   store_transform: true
   store_resolution: true
-  metadata_format: "json"           # json | geojson
+  metadata_format: "json"
 
 # ── Logging ───────────────────────────────────────────────────
 logging:
-  level: "INFO"                     # DEBUG | INFO | WARNING | ERROR
+  level: "INFO"
   log_to_file: true
   log_dir: "logs"
-  max_bytes: 10485760               # 10 MB
+  max_bytes: 10485760
   backup_count: 5
   format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"

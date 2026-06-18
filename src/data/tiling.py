@@ -2,29 +2,37 @@
 Route Resilience — Phase 1
 src/tiling.py
 
-Step 3: Image Tiling
-  - Sliding-window 512×512 tile extraction with configurable stride
-  - Reflection padding to capture edge regions
-  - Information-content filter (road pixel % + image std)
-  - Tile statistics report
+Step 3: Image Tiling (Lazy, Split-Aware, Storage-Efficient)
+
+Phase 1 Design
+--------------
+  * Reads raw images directly — no dependency on data/processed/.
+  * Standardizes each image in-memory before tiling (calls standardize_image).
+  * Processes one image at a time with explicit del + gc.collect().
+  * Outputs to data/tiles/{split}/images/ and data/tiles/{split}/masks/.
+  * Phase 1: only the 'train' split is tiled (valid/test have no masks).
+  * Saves image tiles as JPEG (quality=85), mask tiles as PNG (level=9).
+  * Enforces max_tiles_per_image to cap storage growth.
+  * Checks free disk space before every image (storage_guard_gb threshold).
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
+import gc
+import shutil
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import cv2
 import numpy as np
 import matplotlib
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-from src.core.io     import ensure_dir, load_image, load_mask, save_image, save_json
+from src.core.io     import ensure_dir, load_image, save_json
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -40,11 +48,12 @@ class TileInfo:
     tile_id: str
     source_image_id: str
     source_dataset: str
+    split: str                      # 'train' | 'valid' | 'test'
     image_tile_path: str
     mask_tile_path: Optional[str]
-    row: int           # tile row index
-    col: int           # tile col index
-    x_start: int       # pixel coords in source image
+    row: int
+    col: int
+    x_start: int
     y_start: int
     x_end: int
     y_end: int
@@ -57,70 +66,123 @@ class TileInfo:
 
 
 # ─────────────────────────────────────────────────────────────
+#  Storage guard
+# ─────────────────────────────────────────────────────────────
+
+def _check_storage(guard_gb: float) -> None:
+    """
+    Raise RuntimeError if free disk space falls below *guard_gb* GB.
+    Called before processing each image.
+    """
+    free_gb = shutil.disk_usage(".").free / (1024 ** 3)
+    if free_gb < guard_gb:
+        raise RuntimeError(
+            f"\n⛔  LOW DISK SPACE: {free_gb:.1f} GB free < {guard_gb} GB threshold.\n"
+            "  Pipeline halted to prevent storage overflow.\n"
+            "  Free up space and re-run."
+        )
+
+
+# ─────────────────────────────────────────────────────────────
 #  ImageTiler
 # ─────────────────────────────────────────────────────────────
 
 class ImageTiler:
     """
-    Extracts 512×512 overlapping tiles from satellite images and masks.
+    Lazy, split-aware 512×512 tile extractor.
 
-    Tiles with:
-      - road pixel % < min_road_pixel_pct  → discarded
-      - image std dev < min_image_std      → discarded (near-blank)
+    Memory model
+    ------------
+    For each source image:
+        1. Load image + mask
+        2. Standardize in memory
+        3. Slide window → compute stats
+        4. Save kept tiles (JPEG image, PNG mask)
+        5. del arrays; gc.collect()
+
+    Peak memory ≈ (2 × image size) + (max_tiles_per_image × tile_size²).
+    For 1024×1024 RGB that is ≈ 6 MB + 6 × 0.75 MB ≈ 11 MB per image.
     """
 
     def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
         tc = config.get("tiling", {})
-        self.tile_size: int = tc.get("tile_size", 512)
-        self.stride: int = tc.get("stride", 256)
-        self.pad_mode: str = tc.get("pad_mode", "reflect")
-        self.pad_value: int = tc.get("pad_value", 0)
-        self.min_road_pct: float = tc.get("min_road_pixel_pct", 0.5)
-        self.min_img_std: float = tc.get("min_image_std", 5.0)
+        self.tile_size: int   = tc.get("tile_size", 512)
+        self.stride: int      = tc.get("stride", 256)
+        self.pad_mode: str    = tc.get("pad_mode", "reflect")
+        self.pad_value: int   = tc.get("pad_value", 0)
+        self.min_road_pct: float   = tc.get("min_road_pixel_pct", 0.01)
+        self.min_img_std: float    = tc.get("min_image_std", 5.0)
+        self.max_tiles: int        = tc.get("max_tiles_per_image", 6)
+
+        # Compression settings
+        self.img_fmt: str     = tc.get("image_format", "jpg")
+        self.img_quality: int = tc.get("image_quality", 85)
+        self.msk_fmt: str     = tc.get("mask_format", "png")
+        self.msk_compress: int = tc.get("mask_compression", 9)
+
+        # Storage guard (GB)
+        self.storage_guard_gb: float = tc.get("storage_guard_gb", 15.0)
 
         paths = config.get("paths", {})
-        self.out_img_dir = ensure_dir(paths.get("tiles_images", "data/tiles/images"))
-        self.out_msk_dir = ensure_dir(paths.get("tiles_masks", "data/tiles/masks"))
-        self.out_viz = ensure_dir(paths.get("visualizations", "outputs/visualizations"))
+        self.tiles_root = ensure_dir(paths.get("tiles_root", "data/tiles"))
+        self.out_viz    = ensure_dir(paths.get("visualizations", "outputs/visualizations"))
         self.report_dir = ensure_dir(paths.get("reports", "outputs/reports"))
 
         logger.info(
-            f"ImageTiler initialised: tile={self.tile_size}px, "
-            f"stride={self.stride}px, overlap={100*(1-self.stride/self.tile_size):.0f}%"
+            f"ImageTiler: tile={self.tile_size}px, stride={self.stride}px, "
+            f"max_per_image={self.max_tiles}, "
+            f"img_fmt={self.img_fmt}@{self.img_quality}, "
+            f"mask_fmt={self.msk_fmt}@compress={self.msk_compress}"
         )
 
     # ── Public API ────────────────────────────────────────────
 
     def tile_all(self, records: List[Any]) -> List[TileInfo]:
         """
-        Tile all processed records (uses processed images if available, raw otherwise).
-
-        Args:
-            records: List of ImageRecord objects from ingestion.
+        Tile all records lazily, one at a time.
 
         Returns:
             List of TileInfo for kept tiles.
         """
-        all_tiles: List[TileInfo] = []
+        all_kept: List[TileInfo] = []
         total = len(records)
-        for i, rec in enumerate(records):
-            logger.debug(f"Tiling [{i+1}/{total}]: {rec.image_id}")
-            tiles = self._tile_one(rec)
-            all_tiles.extend(tiles)
+        total_generated = 0
+        total_discarded = 0
 
-        kept = [t for t in all_tiles if t.kept]
-        discarded = [t for t in all_tiles if not t.kept]
+        logger.info(f"Starting lazy tiling of {total} records…")
+
+        for i, rec in enumerate(records):
+            # Storage guard before each image
+            try:
+                _check_storage(self.storage_guard_gb)
+            except RuntimeError as exc:
+                logger.error(str(exc))
+                break
+
+            split = getattr(rec, "split", "train") or "train"
+            logger.info(
+                f"  [{i+1:>5}/{total}] {rec.image_id}  split={split}"
+            )
+
+            kept, generated, discarded = self._tile_one(rec, split)
+            all_kept.extend(kept)
+            total_generated += generated
+            total_discarded += discarded
+
+            # Explicit memory cleanup
+            del kept
+            gc.collect()
+
         logger.info(
-            f"Tiling complete: {len(all_tiles)} total tiles, "
-            f"{len(kept)} kept, {len(discarded)} discarded."
+            f"Tiling complete: {total_generated} generated, "
+            f"{len(all_kept)} kept, {total_discarded} discarded."
         )
 
-        stats = self._compute_tile_statistics(all_tiles)
+        stats = self._compute_tile_statistics(all_kept, total_generated, total_discarded)
         save_json(stats, self.report_dir / "tile_statistics.json")
-        logger.info(f"Tile statistics saved → {self.report_dir / 'tile_statistics.json'}")
-
-        return kept
+        logger.info(f"Tile statistics → {self.report_dir / 'tile_statistics.json'}")
+        return all_kept
 
     def generate_tile_grid_visualization(
         self,
@@ -128,98 +190,95 @@ class ImageTiler:
         tile_infos: List[TileInfo],
         n_samples: int = 3,
     ) -> None:
-        """
-        Visualize tiling pattern on source images.
-
-        Shows the source image with tile bounding boxes overlaid (green=kept, red=discarded).
-        """
-        # Group tiles by source image
-        from collections import defaultdict
-        tiles_by_source: Dict[str, List[TileInfo]] = defaultdict(list)
-        all_tiles_by_source: Dict[str, List[TileInfo]] = defaultdict(list)
-
-        # Re-tile for visualization (to get discard info too)
+        """Visualize tiling pattern on a small sample of source images."""
         for rec in records[:n_samples]:
-            all_t = self._tile_one(rec, save=False)
-            for t in all_t:
-                all_tiles_by_source[rec.image_id].append(t)
-
-        for source_id, source_tiles in list(all_tiles_by_source.items())[:n_samples]:
-            rec = next((r for r in records if r.image_id == source_id), None)
-            if rec is None:
-                continue
-            self._visualize_tile_grid(rec, source_tiles)
+            try:
+                self._visualize_tile_grid(rec, tile_infos)
+            except Exception as exc:
+                logger.debug(f"Visualization skipped for {rec.image_id}: {exc}")
 
     # ── Internal tiling ───────────────────────────────────────
 
-    def _tile_one(self, rec: Any, save: bool = True) -> List[TileInfo]:
-        """Extract tiles from one ImageRecord."""
-        # Prefer processed image
-        from pathlib import Path as P
-        processed_img_path = Path("data/processed/images") / (rec.image_id + ".png")
-        processed_msk_path = Path("data/processed/masks") / (rec.image_id + "_mask.png")
+    def _tile_one(
+        self, rec: Any, split: str
+    ) -> Tuple[List[TileInfo], int, int]:
+        """
+        Tile a single image record. Returns (kept_tiles, n_generated, n_discarded).
+        """
+        from src.data.standardization import standardize_image, standardize_mask
 
-        img_path = processed_img_path if processed_img_path.exists() else Path(rec.image_path)
-        msk_path = processed_msk_path if processed_msk_path.exists() else (
-            Path(rec.mask_path) if rec.mask_path else None
-        )
+        img_path = Path(rec.image_path)
+        msk_path = Path(rec.mask_path) if rec.mask_path else None
 
+        # Output directories for this split
+        out_img_dir = ensure_dir(self.tiles_root / split / "images")
+        out_msk_dir = ensure_dir(self.tiles_root / split / "masks") if msk_path else None
+
+        # Load + standardize image
         try:
-            img = load_image(img_path)
+            img_raw = load_image(img_path)
+            img = standardize_image(img_raw, self.config)
+            del img_raw
         except Exception as exc:
-            logger.error(f"Cannot load image for tiling: {img_path}: {exc}")
-            return []
+            logger.error(f"Cannot load/standardize {rec.image_id}: {exc}")
+            return [], 0, 0
 
-        mask = None
+        # Load + standardize mask
+        mask: Optional[np.ndarray] = None
         if msk_path and msk_path.exists():
             try:
-                mask = load_mask(msk_path)
+                # DeepGlobe masks are RGB — load as grayscale
+                msk_raw = cv2.imread(str(msk_path), cv2.IMREAD_GRAYSCALE)
+                if msk_raw is not None:
+                    mask = np.where(msk_raw > 127, 255, 0).astype(np.uint8)
+                    del msk_raw
             except Exception as exc:
-                logger.warning(f"Cannot load mask for tiling: {msk_path}: {exc}")
+                logger.warning(f"Cannot load mask {msk_path}: {exc}")
 
-        tiles = []
+        # Slide window and collect candidates
+        candidates: List[Tuple[np.ndarray, Optional[np.ndarray], Dict, float, float]] = []
         for tile_img, tile_mask, meta in self._sliding_window(img, mask, rec.image_id):
-            # Compute statistics
-            img_std = float(tile_img.std())
+            img_std  = float(tile_img.std())
             road_pct = 0.0
             if tile_mask is not None:
-                road_pct = float(np.sum(tile_mask > 0)) / (tile_mask.size) * 100.0
+                road_pct = float(np.sum(tile_mask > 0)) / tile_mask.size * 100.0
+            candidates.append((tile_img, tile_mask, meta, img_std, road_pct))
 
-            # Filter
-            kept = True
-            discard_reason = None
-            if road_pct < self.min_road_pct:
-                kept = False
-                discard_reason = f"road_pixel_pct={road_pct:.2f}% < {self.min_road_pct}%"
-            elif img_std < self.min_img_std:
-                kept = False
-                discard_reason = f"image_std={img_std:.2f} < {self.min_img_std}"
+        # Free the large source arrays now
+        del img
+        if mask is not None:
+            del mask
+        gc.collect()
 
-            tile_img_path = None
-            tile_msk_path = None
+        # Filter candidates
+        valid = [c for c in candidates if self._should_keep(*c[3:])]
+        discarded = len(candidates) - len(valid)
 
-            if kept and save:
-                tile_id = f"{rec.image_id}_r{meta['row']:03d}_c{meta['col']:03d}"
-                tile_img_fname = tile_id + ".png"
-                tile_msk_fname = tile_id + "_mask.png"
+        # Sort by road_pct descending and cap
+        valid.sort(key=lambda c: c[4], reverse=True)
+        valid = valid[:self.max_tiles]
 
-                save_image(tile_img, self.out_img_dir / tile_img_fname)
-                tile_img_path = str(self.out_img_dir / tile_img_fname)
+        # Save and build TileInfo
+        kept: List[TileInfo] = []
+        for tile_img, tile_mask, meta, img_std, road_pct in valid:
+            tile_id       = f"{split}_{rec.image_id}_r{meta['row']:03d}_c{meta['col']:03d}"
+            img_fname     = tile_id + f".{self.img_fmt}"
+            msk_fname     = tile_id + "_mask.png"
 
-                if tile_mask is not None:
-                    save_image(tile_mask, self.out_msk_dir / tile_msk_fname, is_mask=True)
-                    tile_msk_path = str(self.out_msk_dir / tile_msk_fname)
-            elif save:
-                tile_id = f"{rec.image_id}_r{meta['row']:03d}_c{meta['col']:03d}_DISCARD"
-            else:
-                tile_id = f"{rec.image_id}_r{meta['row']:03d}_c{meta['col']:03d}"
+            tile_img_path = out_img_dir / img_fname
+            tile_msk_path = (out_msk_dir / msk_fname) if (out_msk_dir and tile_mask is not None) else None
 
-            tiles.append(TileInfo(
+            self._save_tile_image(tile_img, tile_img_path)
+            if tile_msk_path is not None:
+                self._save_tile_mask(tile_mask, tile_msk_path)
+
+            kept.append(TileInfo(
                 tile_id=tile_id,
                 source_image_id=rec.image_id,
-                source_dataset=getattr(rec, "source_dataset", "unknown"),
-                image_tile_path=tile_img_path or "",
-                mask_tile_path=tile_msk_path,
+                source_dataset=getattr(rec, "source_dataset", "deepglobe"),
+                split=split,
+                image_tile_path=str(tile_img_path),
+                mask_tile_path=str(tile_msk_path) if tile_msk_path else None,
                 row=meta["row"],
                 col=meta["col"],
                 x_start=meta["x_start"],
@@ -230,11 +289,44 @@ class ImageTiler:
                 tile_height=tile_img.shape[0],
                 road_pixel_pct=road_pct,
                 image_std=img_std,
-                kept=kept,
-                discard_reason=discard_reason,
+                kept=True,
+                discard_reason=None,
             ))
 
-        return tiles
+        # Free candidate tile arrays
+        del candidates
+        gc.collect()
+
+        return kept, len(valid) + discarded, discarded
+
+    def _should_keep(self, img_std: float, road_pct: float) -> bool:
+        """Return True if the tile passes quality filters."""
+        if road_pct < self.min_road_pct:
+            return False
+        if img_std < self.min_img_std:
+            return False
+        return True
+
+    # ── Compression-aware save helpers ────────────────────────
+
+    def _save_tile_image(self, tile: np.ndarray, path: Path) -> None:
+        """Save a tile image using the configured format and quality."""
+        ensure_dir(path.parent)
+        if self.img_fmt.lower() in ("jpg", "jpeg"):
+            img_bgr = cv2.cvtColor(tile, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(str(path), img_bgr, [cv2.IMWRITE_JPEG_QUALITY, self.img_quality])
+        else:
+            img_bgr = cv2.cvtColor(tile, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(str(path), img_bgr)
+
+    def _save_tile_mask(self, mask: np.ndarray, path: Path) -> None:
+        """Save a mask tile as PNG with maximum compression."""
+        ensure_dir(path.parent)
+        if mask.ndim == 3:
+            mask = mask[:, :, 0]
+        cv2.imwrite(str(path), mask, [cv2.IMWRITE_PNG_COMPRESSION, self.msk_compress])
+
+    # ── Sliding window ────────────────────────────────────────
 
     def _sliding_window(
         self,
@@ -243,161 +335,120 @@ class ImageTiler:
         image_id: str,
     ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict], None, None]:
         """
-        Yield (tile_img, tile_mask, metadata) for every sliding window position.
-        Pads the image so all positions are covered.
+        Yield (tile_img, tile_mask, metadata) for each window position.
+        Pads so the full image is covered.
         """
         h, w = img.shape[:2]
         ts = self.tile_size
         st = self.stride
 
-        # Compute padded size
-        pad_h = max(0, ts - (h - ts) % st) if h > ts else ts - h
-        pad_w = max(0, ts - (w - ts) % st) if w > ts else ts - w
+        # Compute padding needed
+        def _padded_size(dim: int) -> int:
+            if dim <= ts:
+                return ts
+            remainder = (dim - ts) % st
+            return dim + (st - remainder) % st
+
+        ph = _padded_size(h)
+        pw = _padded_size(w)
 
         if self.pad_mode == "reflect":
-            img_padded = np.pad(img, ((0, pad_h), (0, pad_w), (0, 0)), mode="reflect")
-            if mask is not None:
-                mask_padded = np.pad(mask, ((0, pad_h), (0, pad_w)), mode="reflect")
-            else:
-                mask_padded = None
+            img_p = np.pad(img, ((0, ph - h), (0, pw - w), (0, 0)), mode="reflect")
+            msk_p = np.pad(mask, ((0, ph - h), (0, pw - w)), mode="reflect") if mask is not None else None
         else:
-            img_padded = np.pad(
-                img,
-                ((0, pad_h), (0, pad_w), (0, 0)),
-                mode="constant",
-                constant_values=self.pad_value,
-            )
-            mask_padded = None
-            if mask is not None:
-                mask_padded = np.pad(
-                    mask,
-                    ((0, pad_h), (0, pad_w)),
-                    mode="constant",
-                    constant_values=0,
-                )
+            img_p = np.pad(img, ((0, ph - h), (0, pw - w), (0, 0)),
+                           mode="constant", constant_values=self.pad_value)
+            msk_p = np.pad(mask, ((0, ph - h), (0, pw - w)),
+                           mode="constant", constant_values=0) if mask is not None else None
 
-        ph, pw = img_padded.shape[:2]
         row_idx = 0
         for y in range(0, ph - ts + 1, st):
             col_idx = 0
             for x in range(0, pw - ts + 1, st):
-                tile_img = img_padded[y:y+ts, x:x+ts]
-                tile_msk = mask_padded[y:y+ts, x:x+ts] if mask_padded is not None else None
-
-                meta = {
-                    "row": row_idx,
-                    "col": col_idx,
-                    "x_start": x,
-                    "y_start": y,
-                    "x_end": x + ts,
-                    "y_end": y + ts,
-                }
-                yield tile_img, tile_msk, meta
+                yield (
+                    img_p[y:y+ts, x:x+ts],
+                    msk_p[y:y+ts, x:x+ts] if msk_p is not None else None,
+                    {
+                        "row": row_idx, "col": col_idx,
+                        "x_start": x, "y_start": y,
+                        "x_end": x + ts, "y_end": y + ts,
+                    },
+                )
                 col_idx += 1
             row_idx += 1
 
     # ── Statistics ────────────────────────────────────────────
 
-    def _compute_tile_statistics(self, tiles: List[TileInfo]) -> Dict[str, Any]:
-        kept = [t for t in tiles if t.kept]
-        discarded = [t for t in tiles if not t.kept]
+    def _compute_tile_statistics(
+        self,
+        kept: List[TileInfo],
+        total_generated: int,
+        total_discarded: int,
+    ) -> Dict[str, Any]:
         road_pcts = [t.road_pixel_pct for t in kept]
-
-        by_source: Dict[str, Dict] = {}
-        for t in tiles:
-            s = t.source_dataset
-            if s not in by_source:
-                by_source[s] = {"total": 0, "kept": 0, "discarded": 0}
-            by_source[s]["total"] += 1
-            if t.kept:
-                by_source[s]["kept"] += 1
-            else:
-                by_source[s]["discarded"] += 1
+        by_split: Dict[str, Dict] = {}
+        for t in kept:
+            s = t.split
+            if s not in by_split:
+                by_split[s] = {"kept": 0}
+            by_split[s]["kept"] += 1
 
         return {
-            "total_tiles_generated": len(tiles),
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "total_tiles_generated": total_generated,
             "tiles_kept": len(kept),
-            "tiles_discarded": len(discarded),
-            "keep_rate_pct": round(len(kept) / len(tiles) * 100, 2) if tiles else 0,
+            "tiles_discarded": total_discarded,
+            "keep_rate_pct": round(len(kept) / total_generated * 100, 2) if total_generated else 0,
             "tile_size": self.tile_size,
             "stride": self.stride,
             "overlap_pct": round((1 - self.stride / self.tile_size) * 100, 1),
+            "max_tiles_per_image": self.max_tiles,
             "road_pixel_pct_in_kept": {
                 "mean": round(float(np.mean(road_pcts)), 4) if road_pcts else 0,
-                "std": round(float(np.std(road_pcts)), 4) if road_pcts else 0,
-                "min": round(float(np.min(road_pcts)), 4) if road_pcts else 0,
-                "max": round(float(np.max(road_pcts)), 4) if road_pcts else 0,
+                "std":  round(float(np.std(road_pcts)), 4) if road_pcts else 0,
+                "min":  round(float(np.min(road_pcts)), 4) if road_pcts else 0,
+                "max":  round(float(np.max(road_pcts)), 4) if road_pcts else 0,
             },
-            "discard_reasons": _count_reasons([t.discard_reason for t in discarded]),
-            "per_source": by_source,
+            "by_split": by_split,
         }
 
     # ── Visualization ─────────────────────────────────────────
 
-    def _visualize_tile_grid(self, rec: Any, tiles: List[TileInfo]) -> None:
+    def _visualize_tile_grid(self, rec: Any, tile_infos: List[TileInfo]) -> None:
         """Overlay tile bounding boxes on source image and save."""
         try:
-            img_path = Path("data/processed/images") / (rec.image_id + ".png")
-            if not img_path.exists():
-                img_path = Path(rec.image_path)
-            img = load_image(img_path)
+            img = load_image(Path(rec.image_path))
         except Exception:
             return
 
-        fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+        rec_tiles = [t for t in tile_infos if t.source_image_id == rec.image_id]
+        if not rec_tiles:
+            return
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 9))
         fig.patch.set_facecolor("#0e1117")
         ax.set_facecolor("#0e1117")
         ax.imshow(img)
         ax.set_title(
-            f"Tile Grid: {rec.image_id}  "
-            f"(green=kept, red=discarded)",
-            color="white", fontsize=11
+            f"Tile Grid: {rec.image_id} ({len(rec_tiles)} kept, green)",
+            color="white", fontsize=10,
         )
         ax.axis("off")
 
-        for t in tiles:
-            color = "#00ff88" if t.kept else "#ff4444"
-            alpha = 0.25 if t.kept else 0.15
+        for t in rec_tiles:
             rect = patches.Rectangle(
-                (t.x_start, t.y_start),
-                t.tile_width, t.tile_height,
-                linewidth=0.8, edgecolor=color,
-                facecolor=color, alpha=alpha,
+                (t.x_start, t.y_start), t.tile_width, t.tile_height,
+                linewidth=0.8, edgecolor="#00ff88", facecolor="#00ff88", alpha=0.20,
             )
             ax.add_patch(rect)
 
-        kept_n = sum(1 for t in tiles if t.kept)
-        disc_n = sum(1 for t in tiles if not t.kept)
-        ax.text(
-            0.01, 0.98,
-            f"Kept: {kept_n}  Discarded: {disc_n}",
-            transform=ax.transAxes,
-            color="white", fontsize=10, va="top",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="#333", alpha=0.8),
-        )
-
         out = self.out_viz / f"tile_grid_{rec.image_id}.png"
         plt.tight_layout()
-        plt.savefig(str(out), dpi=120, bbox_inches="tight", facecolor="#0e1117")
+        plt.savefig(str(out), dpi=100, bbox_inches="tight", facecolor="#0e1117")
         plt.close()
-        logger.debug(f"Tile grid visualization saved → {out}")
-
-
-# ─────────────────────────────────────────────────────────────
-#  Helpers
-# ─────────────────────────────────────────────────────────────
-
-def _count_reasons(reasons: List[Optional[str]]) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    for r in reasons:
-        key = r or "unknown"
-        # Simplify to category
-        if "road_pixel" in key:
-            key = "low_road_density"
-        elif "image_std" in key:
-            key = "near_blank_image"
-        counts[key] = counts.get(key, 0) + 1
-    return counts
+        del img
+        gc.collect()
+        logger.debug(f"Tile grid visualization → {out}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -411,14 +462,26 @@ def run_tiling(
     """
     Main tiling entry point.
 
-    Args:
-        config:  Full pipeline config.
-        records: List of ImageRecord objects from ingestion.
+    Processes only records whose split is in config.datasets.deepglobe.active_splits.
+    For Phase 1 this is ['train'] only.
 
     Returns:
         List of TileInfo for kept tiles.
     """
     tiler = ImageTiler(config)
     kept_tiles = tiler.tile_all(records)
-    tiler.generate_tile_grid_visualization(records, kept_tiles, n_samples=3)
+
+    if kept_tiles:
+        # Visualize only first 3 unique source images
+        unique_ids = []
+        seen = set()
+        for t in kept_tiles:
+            if t.source_image_id not in seen:
+                seen.add(t.source_image_id)
+                unique_ids.append(t.source_image_id)
+            if len(unique_ids) >= 3:
+                break
+        sample_records = [r for r in records if r.image_id in seen]
+        tiler.generate_tile_grid_visualization(sample_records, kept_tiles, n_samples=3)
+
     return kept_tiles

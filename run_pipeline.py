@@ -45,12 +45,14 @@ ALL_STEPS = [
     "ingest",
     "standardize",
     "tile",
-    "split",
+    # "split" — skipped: DeepGlobe provides official splits
     "augment",
     "occlude",
     "quality",
     "visualize",
 ]
+
+VALID_STEP_CHOICES = ALL_STEPS + ["all", "split"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,7 +69,7 @@ def parse_args() -> argparse.Namespace:
         "--steps",
         nargs="+",
         default=["all"],
-        choices=ALL_STEPS + ["all"],
+        choices=VALID_STEP_CHOICES,
         help=(
             "Pipeline steps to run. Use 'all' for the full pipeline.\n"
             f"Available: {', '.join(ALL_STEPS)}"
@@ -107,12 +109,26 @@ def main() -> None:
         sys.exit(1)
 
     steps: List[str] = ALL_STEPS if "all" in args.steps else args.steps
+    # Quietly skip the split step — DeepGlobe provides official splits
+    steps = [s for s in steps if s != "split"]
 
     logger.info("=" * 60)
     logger.info("  ROUTE RESILIENCE — PHASE 1 PIPELINE")
     logger.info(f"  Steps: {', '.join(steps)}")
     logger.info(f"  Config: {args.config}")
     logger.info("=" * 60)
+
+    # Storage guard — abort immediately if disk is already too full
+    import shutil
+    tc = config.get("tiling", {})
+    guard_gb = tc.get("storage_guard_gb", 15.0)
+    free_gb = shutil.disk_usage(".").free / (1024 ** 3)
+    logger.info(f"  Free disk: {free_gb:.1f} GB  (guard={guard_gb} GB)")
+    if free_gb < guard_gb:
+        logger.error(
+            f"⛔ Only {free_gb:.1f} GB free. Pipeline requires ≥{guard_gb} GB."
+        )
+        sys.exit(1)
 
     pipeline_start = time.perf_counter()
 
@@ -173,17 +189,60 @@ def main() -> None:
 
     # ── Step 4: Split ──────────────────────────────────────────
     if "split" in steps:
-        if not tile_infos:
-            logger.error(
-                "No tiles in memory for splitting. "
-                "Run 'tile' step first or use --steps tile split."
-            )
-            sys.exit(1)
-
-        from src.data.splitting import run_splitting
-        train_tiles, val_tiles, test_tiles = run_step(
-            "split", run_splitting, config, tile_infos
+        logger.info(
+            "Skipping split step: DeepGlobe provides official "
+            "train/valid/test splits embedded in tile paths."
         )
+
+    # Reconstruct records and tile_infos from CSV if not in memory but needed
+    needed_for_later = any(s in steps for s in ["augment", "occlude", "quality", "visualize"])
+    if needed_for_later:
+        if not records:
+            logger.info("Loading records via ingestion...")
+            from src.data.ingestion import run_ingestion
+            records, _ = run_step("ingest", run_ingestion, config)
+
+        if not tile_infos:
+            csv_path = Path("outputs/reports/master_dataset.csv")
+            if csv_path.exists():
+                logger.info("Reconstructing tile_infos from outputs/reports/master_dataset.csv...")
+                import pandas as pd
+                from src.data.tiling import TileInfo
+                df = pd.read_csv(csv_path)
+                tile_infos = []
+                for _, row in df.iterrows():
+                    dims = str(row["image_dimensions"]).split("x")
+                    w = int(dims[0]) if len(dims) > 0 else 512
+                    h = int(dims[1]) if len(dims) > 1 else 512
+                    parts = str(row["image_id"]).split("_")
+                    row_num, col_num = 0, 0
+                    if len(parts) >= 4:
+                        try:
+                            row_num = int(parts[-2].replace("r", ""))
+                            col_num = int(parts[-1].replace("c", ""))
+                        except ValueError:
+                            pass
+                    tile_infos.append(TileInfo(
+                        tile_id=row["image_id"],
+                        source_image_id=str(row["source_image_id"]),
+                        source_dataset=row["source_dataset"],
+                        split=row["split"],
+                        image_tile_path=row["image_tile_path"],
+                        mask_tile_path=row["mask_tile_path"] if pd.notna(row["mask_tile_path"]) else None,
+                        row=row_num,
+                        col=col_num,
+                        x_start=col_num * 256,
+                        y_start=row_num * 256,
+                        x_end=col_num * 256 + w,
+                        y_end=row_num * 256 + h,
+                        tile_width=w,
+                        tile_height=h,
+                        road_pixel_pct=float(row["road_pixel_pct"]),
+                        image_std=15.0,
+                        kept=True,
+                        discard_reason=None
+                    ))
+                logger.info(f"Loaded {len(tile_infos)} tile infos from master_dataset.csv.")
 
     # ── Step 5: Augment ────────────────────────────────────────
     if "augment" in steps:
@@ -204,7 +263,7 @@ def main() -> None:
         from src.data.occlusion import run_occlusion
         occlusion_results = run_step("occlude", run_occlusion, config, all_tiles)
 
-    # ── Step 7: Quality ────────────────────────────────────────
+    # ── Step 7: Quality ─────────────────────────────────────────
     if "quality" in steps:
         if not records or not tile_infos:
             logger.error(
@@ -214,15 +273,16 @@ def main() -> None:
             sys.exit(1)
 
         from src.data.quality import run_quality_analysis
+        # Pass all tile_infos as train_tiles — splits are embedded in tile.split
         quality_report = run_step(
             "quality",
             run_quality_analysis,
             config,
             records,
             tile_infos,
-            train_tiles or tile_infos,
-            val_tiles or [],
-            test_tiles or [],
+            tile_infos,   # train_tiles
+            [],           # val_tiles  (not processed in Phase 1)
+            [],           # test_tiles (not processed in Phase 1)
             occlusion_results or [],
         )
 
@@ -256,12 +316,13 @@ def main() -> None:
     logger.info("    outputs/reports/dataset_report.json")
     logger.info("    outputs/reports/quality_report.json")
     logger.info("    outputs/reports/master_dataset.csv")
-    logger.info("    outputs/reports/train.csv  val.csv  test.csv")
     logger.info("    outputs/visualizations/  ← PNG charts")
     logger.info("    outputs/occlusion_samples/  ← Occlusion examples")
-    logger.info("    data/processed/  ← Standardised images and masks")
-    logger.info("    data/tiles/      ← 512×512 tiles")
-    logger.info("    data/train|val|test/  ← Split datasets")
+    logger.info("    data/tiles/train/  ← 512×512 JPEG tiles + PNG masks")
+    import shutil as _su
+    used_gb = (_su.disk_usage(".").total - _su.disk_usage(".").free) / (1024**3)
+    free_gb = _su.disk_usage(".").free / (1024**3)
+    logger.info(f"  Disk: {free_gb:.1f} GB free")
     logger.info("=" * 60 + "\n")
 
 

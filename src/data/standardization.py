@@ -2,18 +2,24 @@
 Route Resilience — Phase 1
 src/standardization.py
 
-Step 2: Image Standardization
-  - Convert GeoTIFF / multi-band rasters to RGB uint8
-  - Preserve and save geospatial metadata
-  - Normalize pixel values to [0,1] float32 for model consumption
-  - Resize images if configured
-  - Generate before/after comparison visualizations
+Step 2: Image Standardization (In-Memory Streaming Mode)
+
+Phase 1 Policy
+--------------
+  skip_save: true  →  No files are ever written to data/processed/.
+                       Standardization is a pure in-memory transform
+                       called directly by the tiler for each image.
+
+  No _float32.npy files are generated.
+
+Public API
+----------
+  standardize_image(img, config)  →  standardized uint8 RGB ndarray
+  run_standardization(config, records)  →  generates preview only, returns []
 """
 
 from __future__ import annotations
 
-import json
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,67 +30,179 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from src.core.io     import ensure_dir, load_image, load_mask, save_image, save_json, extract_geospatial_metadata
+from src.core.io     import ensure_dir, load_image, load_mask, save_json, extract_geospatial_metadata
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────
-#  ImageStandardizer
+#  In-memory standardizer (pure utility — no I/O side effects)
+# ─────────────────────────────────────────────────────────────
+
+def standardize_image(
+    img: np.ndarray,
+    config: Dict[str, Any],
+) -> np.ndarray:
+    """
+    Standardize a satellite image in memory.
+
+    Performs:
+        1. Ensure 3-channel uint8 RGB
+        2. Optional resize (disabled by default)
+
+    Args:
+        img:    (H, W, C) image array loaded from disk.
+        config: Full pipeline config dict.
+
+    Returns:
+        (H, W, 3) uint8 RGB ndarray — ready for tiling.
+        The input array is NOT modified.
+    """
+    sc = config.get("standardization", {})
+    resize_enabled: bool = sc.get("resize_enabled", False)
+    max_dimension: int = sc.get("max_dimension", 4096)
+
+    out = _ensure_rgb(img)
+    if resize_enabled:
+        out, _ = _maybe_resize(out, max_dimension)
+    return out
+
+
+def standardize_mask(
+    mask: np.ndarray,
+    config: Dict[str, Any],
+    source_format: str = "grayscale",
+) -> np.ndarray:
+    """
+    Standardize a road mask in memory.
+
+    Supports:
+        'grayscale'  — values > 127 → 255, rest → 0
+        'deepglobe'  — RGB white (>127 on any channel) → 255 road, else 0
+
+    Returns:
+        (H, W) uint8 binary mask, values 0 or 255.
+    """
+    if source_format == "deepglobe":
+        # DeepGlobe: RGB mask, white=road
+        if mask.ndim == 3:
+            binary = np.any(mask > 127, axis=2).astype(np.uint8) * 255
+        else:
+            binary = np.where(mask > 127, 255, 0).astype(np.uint8)
+    else:
+        if mask.ndim == 3:
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY) if mask.shape[2] == 3 else mask[:, :, 0]
+        binary = np.where(mask > 127, 255, 0).astype(np.uint8)
+    return binary
+
+
+# ─────────────────────────────────────────────────────────────
+#  Helpers
+# ─────────────────────────────────────────────────────────────
+
+def _ensure_rgb(img: np.ndarray) -> np.ndarray:
+    """Return a 3-channel uint8 RGB copy of the image."""
+    if img.ndim == 2:
+        img = np.stack([img, img, img], axis=-1)
+    elif img.shape[2] == 1:
+        img = np.concatenate([img, img, img], axis=-1)
+    elif img.shape[2] > 3:
+        img = img[:, :, :3]
+    if img.dtype != np.uint8:
+        img = img.astype(np.uint8)
+    return img
+
+
+def _maybe_resize(
+    img: np.ndarray,
+    max_dimension: int,
+    interpolation: int = cv2.INTER_LANCZOS4,
+) -> Tuple[np.ndarray, float]:
+    """Resize image only if it exceeds max_dimension on either axis."""
+    h, w = img.shape[:2]
+    if max(h, w) <= max_dimension:
+        return img, 1.0
+    scale = max_dimension / max(h, w)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    return cv2.resize(img, (new_w, new_h), interpolation=interpolation), scale
+
+
+# ─────────────────────────────────────────────────────────────
+#  Comparison visualization (sample only — no dataset copies)
 # ─────────────────────────────────────────────────────────────
 
 class ImageStandardizer:
     """
-    Standardizes satellite images and masks for the training pipeline.
+    Thin wrapper around the in-memory standardization functions.
 
-    Outputs:
-        data/processed/images/   — uint8 RGB PNGs
-        data/processed/masks/    — uint8 binary PNGs (0 or 255)
-        data/processed/metadata/ — per-image JSON with geospatial metadata
+    In Phase 1 (skip_save=True), this class generates a visual comparison
+    grid from a small sample of images and returns immediately.
+    No files are written to data/processed/.
     """
 
     def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
         sc = config.get("standardization", {})
-        self.percentile_low: float = sc.get("percentile_low", 2)
-        self.percentile_high: float = sc.get("percentile_high", 98)
-        self.resize_enabled: bool = sc.get("resize_enabled", False)
-        self.max_dimension: int = sc.get("max_dimension", 4096)
-        self.normalize_float: bool = sc.get("normalize_float", True)
-
+        self.skip_save: bool = sc.get("skip_save", True)
         paths = config.get("paths", {})
-        self.out_images = ensure_dir(paths.get("processed_images", "data/processed/images"))
-        self.out_masks = ensure_dir(paths.get("processed_masks", "data/processed/masks"))
-        self.out_meta = ensure_dir(paths.get("processed_metadata", "data/processed/metadata"))
-        self.out_viz = ensure_dir(
-            paths.get("visualizations", "outputs/visualizations")
+        self.out_viz = ensure_dir(paths.get("visualizations", "outputs/visualizations"))
+        logger.info(
+            f"ImageStandardizer initialised (skip_save={self.skip_save}). "
+            "No files will be written to data/processed/."
         )
 
-        logger.info("ImageStandardizer initialised.")
-
-    # ── Public API ────────────────────────────────────────────
-
-    def process_all(
-        self, records: List[Any]
-    ) -> List[Dict[str, Any]]:
+    def process_all(self, records: List[Any]) -> List[Dict[str, Any]]:
         """
-        Process all ImageRecords.
+        In skip_save mode: generate a visual sample and return an empty list.
 
-        Args:
-            records: List of ingestion.ImageRecord objects.
-
-        Returns:
-            List of dicts with processed paths and metadata.
+        The tiler will call standardize_image() directly for each image.
         """
+        if self.skip_save:
+            logger.info(
+                "Standardization running in streaming mode (skip_save=True). "
+                "No intermediate files created."
+            )
+            self.generate_comparison_grid(records, n_samples=6)
+            return []
+
+        # Legacy path (skip_save=False) — kept for non-Phase-1 use
         processed = []
         total = len(records)
+        out_images = ensure_dir(
+            self.config.get("paths", {}).get("processed_images", "data/processed/images")
+        )
+        out_masks = ensure_dir(
+            self.config.get("paths", {}).get("processed_masks", "data/processed/masks")
+        )
+        out_meta = ensure_dir(
+            self.config.get("paths", {}).get("processed_metadata", "data/processed/metadata")
+        )
+        from src.core.io import save_image
         for i, rec in enumerate(records):
             logger.debug(f"Standardizing [{i+1}/{total}]: {rec.image_id}")
-            result = self._process_record(rec)
-            if result is not None:
+            try:
+                img = load_image(Path(rec.image_path))
+                img = standardize_image(img, self.config)
+                out_img = out_images / (rec.image_id + ".png")
+                save_image(img, out_img)
+                result = {
+                    "image_id": rec.image_id,
+                    "source_dataset": rec.source_dataset,
+                    "processed_image": str(out_img),
+                    "width": img.shape[1],
+                    "height": img.shape[0],
+                }
+                if rec.has_mask and rec.mask_path:
+                    from src.core.io import load_mask as _load_mask
+                    mask = _load_mask(Path(rec.mask_path))
+                    out_msk = out_masks / (rec.image_id + "_mask.png")
+                    save_image(mask, out_msk, is_mask=True)
+                    result["processed_mask"] = str(out_msk)
                 processed.append(result)
-        logger.info(f"Standardized {len(processed)}/{total} images successfully.")
+            except Exception as exc:
+                logger.error(f"Standardization failed for {rec.image_id}: {exc}")
         return processed
 
     def generate_comparison_grid(
@@ -93,201 +211,60 @@ class ImageStandardizer:
         n_samples: int = 6,
     ) -> None:
         """
-        Generate a before/after comparison grid PNG.
+        Generate a before/after comparison grid PNG (sample only).
 
-        Saves to outputs/visualizations/standardization_comparison.png
+        Saves to outputs/visualizations/standardization_comparison.png.
         """
-        from src.data.ingestion import ImageRecord  # local import to avoid circular
-
         sample_records = [r for r in records if r.has_mask][:n_samples]
         if not sample_records:
-            logger.warning("No records with masks available for comparison grid.")
+            logger.warning("No masked records available for comparison grid.")
             return
 
         n = len(sample_records)
-        fig, axes = plt.subplots(n, 4, figsize=(22, 5 * n))
+        fig, axes = plt.subplots(n, 3, figsize=(18, 5 * n))
         if n == 1:
             axes = axes[np.newaxis, :]
 
         fig.suptitle(
-            "Standardization Pipeline — Before / After Comparison",
-            fontsize=16, fontweight="bold", color="white", y=1.01
+            "Standardization Preview — Original / Processed / Mask",
+            fontsize=14, fontweight="bold", color="white", y=1.01,
         )
         fig.patch.set_facecolor("#0e1117")
 
         for row, rec in enumerate(sample_records):
-            proc_img_path = self.out_images / (rec.image_id + ".png")
-            proc_msk_path = self.out_masks / (rec.image_id + "_mask.png")
-
-            # Load raw
             try:
                 raw_img = load_image(Path(rec.image_path))
-            except Exception:
-                continue
+                proc_img = standardize_image(raw_img, self.config)
+                raw_mask = None
+                if rec.has_mask and rec.mask_path:
+                    raw_mask = cv2.imread(str(rec.mask_path), cv2.IMREAD_GRAYSCALE)
+                    if raw_mask is not None:
+                        raw_mask = np.where(raw_mask > 127, 255, 0).astype(np.uint8)
 
-            # Load processed
-            proc_img = None
-            if proc_img_path.exists():
-                try:
-                    proc_img = load_image(proc_img_path)
-                except Exception:
-                    pass
+                for ax in axes[row]:
+                    ax.set_facecolor("#0e1117")
+                    ax.axis("off")
 
-            # Load mask
-            raw_mask = None
-            if rec.has_mask and rec.mask_path:
-                try:
-                    raw_mask = load_mask(Path(rec.mask_path))
-                except Exception:
-                    pass
+                axes[row, 0].imshow(raw_img)
+                axes[row, 0].set_title(f"{rec.image_id}\nRaw", color="white", fontsize=8)
 
-            _plot_comparison_row(axes[row], raw_img, proc_img, raw_mask, rec.image_id)
+                axes[row, 1].imshow(proc_img)
+                axes[row, 1].set_title("Standardized (in-memory)", color="white", fontsize=8)
+
+                if raw_mask is not None:
+                    axes[row, 2].imshow(raw_mask, cmap="Greens", vmin=0, vmax=255)
+                    axes[row, 2].set_title("Ground Truth Mask", color="white", fontsize=8)
+
+                del raw_img, proc_img, raw_mask
+            except Exception as exc:
+                logger.debug(f"Comparison grid error for {rec.image_id}: {exc}")
 
         plt.tight_layout(pad=0.5)
         out_path = self.out_viz / "standardization_comparison.png"
-        plt.savefig(str(out_path), dpi=150, bbox_inches="tight",
+        plt.savefig(str(out_path), dpi=120, bbox_inches="tight",
                     facecolor=fig.get_facecolor())
         plt.close()
-        logger.info(f"Comparison grid saved → {out_path}")
-
-    # ── Internal helpers ──────────────────────────────────────
-
-    def _process_record(self, rec: Any) -> Optional[Dict[str, Any]]:
-        """Process a single ImageRecord."""
-        try:
-            img_path = Path(rec.image_path)
-
-            # 1. Load raw image
-            img = load_image(img_path)
-
-            # 2. Stretch to uint8 if needed (already handled in load_image,
-            #    but we also enforce 3-channel)
-            img = self._ensure_rgb(img)
-
-            # 3. Resize if enabled and image exceeds max_dimension
-            img, scale = self._maybe_resize(img, interpolation=cv2.INTER_LANCZOS4)
-
-            # 4. Save uint8 RGB PNG
-            out_img_path = self.out_images / (rec.image_id + ".png")
-            save_image(img, out_img_path)
-
-            # 5. Process mask if available
-            mask_out_path = None
-            if rec.has_mask and rec.mask_path:
-                mask = load_mask(Path(rec.mask_path))
-                if scale != 1.0:
-                    new_h = int(mask.shape[0] * scale)
-                    new_w = int(mask.shape[1] * scale)
-                    mask = cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-                mask_out_path = self.out_masks / (rec.image_id + "_mask.png")
-                save_image(mask, mask_out_path, is_mask=True)
-
-            # 6. Save float32 normalized version (for PyTorch DataLoader)
-            if self.normalize_float:
-                img_float = img.astype(np.float32) / 255.0
-                float_path = self.out_images / (rec.image_id + "_float32.npy")
-                np.save(str(float_path), img_float)
-
-            # 7. Preserve geospatial metadata
-            geo = extract_geospatial_metadata(img_path)
-            geo["processed_image_path"] = str(out_img_path)
-            geo["processed_mask_path"] = str(mask_out_path) if mask_out_path else None
-            geo["scale_applied"] = scale
-            geo["standardized_width"] = img.shape[1]
-            geo["standardized_height"] = img.shape[0]
-            meta_path = self.out_meta / (rec.image_id + "_geo.json")
-            save_json(geo, meta_path)
-
-            return {
-                "image_id": rec.image_id,
-                "source_dataset": rec.source_dataset,
-                "processed_image": str(out_img_path),
-                "processed_mask": str(mask_out_path) if mask_out_path else None,
-                "geo_metadata": str(meta_path),
-                "width": img.shape[1],
-                "height": img.shape[0],
-                "scale_applied": scale,
-                "is_georeferenced": geo.get("is_georeferenced", False),
-            }
-
-        except Exception as exc:
-            logger.error(f"Standardization failed for {rec.image_id}: {exc}")
-            return None
-
-    def _ensure_rgb(self, img: np.ndarray) -> np.ndarray:
-        """Ensure the image is exactly 3-channel uint8 RGB."""
-        if img.ndim == 2:
-            img = np.stack([img, img, img], axis=-1)
-        elif img.shape[2] == 1:
-            img = np.concatenate([img, img, img], axis=-1)
-        elif img.shape[2] > 3:
-            img = img[:, :, :3]
-        if img.dtype != np.uint8:
-            img = img.astype(np.uint8)
-        return img
-
-    def _maybe_resize(
-        self, img: np.ndarray, interpolation: int = cv2.INTER_LANCZOS4
-    ) -> Tuple[np.ndarray, float]:
-        """Resize image if resize_enabled and dimension exceeds max_dimension."""
-        if not self.resize_enabled:
-            return img, 1.0
-        h, w = img.shape[:2]
-        if max(h, w) <= self.max_dimension:
-            return img, 1.0
-        scale = self.max_dimension / max(h, w)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        img = cv2.resize(img, (new_w, new_h), interpolation=interpolation)
-        logger.debug(f"Resized {w}×{h} → {new_w}×{new_h} (scale={scale:.3f})")
-        return img, scale
-
-
-# ─────────────────────────────────────────────────────────────
-#  Visualization helpers
-# ─────────────────────────────────────────────────────────────
-
-def _plot_comparison_row(
-    axes: np.ndarray,
-    raw_img: np.ndarray,
-    proc_img: Optional[np.ndarray],
-    mask: Optional[np.ndarray],
-    title: str,
-) -> None:
-    """Fill one row of the comparison grid."""
-    dark_bg = "#0e1117"
-
-    titles = ["Raw Image", "Processed (RGB)", "Ground Truth Mask", "Overlay"]
-    for ax in axes:
-        ax.set_facecolor(dark_bg)
-        ax.axis("off")
-
-    # Raw
-    axes[0].imshow(raw_img)
-    axes[0].set_title(f"{title}\n{titles[0]}", color="white", fontsize=9)
-
-    # Processed
-    if proc_img is not None:
-        axes[1].imshow(proc_img)
-        axes[1].set_title(titles[1], color="white", fontsize=9)
-    else:
-        axes[1].text(0.5, 0.5, "Not processed", ha="center", va="center",
-                     color="gray", transform=axes[1].transAxes)
-
-    # Mask
-    if mask is not None:
-        axes[2].imshow(mask, cmap="Greens", vmin=0, vmax=255)
-        axes[2].set_title(titles[2], color="white", fontsize=9)
-
-    # Overlay: processed image + mask
-    if proc_img is not None and mask is not None:
-        overlay = proc_img.copy()
-        road_px = mask > 0
-        overlay[road_px, 0] = np.clip(overlay[road_px, 0] * 0.5 + 127, 0, 255).astype(np.uint8)
-        overlay[road_px, 1] = np.clip(overlay[road_px, 1] * 0.5, 0, 255).astype(np.uint8)
-        overlay[road_px, 2] = np.clip(overlay[road_px, 2] * 0.5, 0, 255).astype(np.uint8)
-        axes[3].imshow(overlay)
-        axes[3].set_title(titles[3], color="white", fontsize=9)
+        logger.info(f"Standardization comparison grid saved → {out_path}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -301,20 +278,21 @@ def run_standardization(
     """
     Main standardization entry point.
 
+    In Phase 1 (skip_save=True):
+        Generates a visual comparison grid only. Returns [].
+        The tiler calls standardize_image() inline per image.
+
     Args:
         config:  Full pipeline config.
         records: List of ImageRecord objects from ingestion step.
 
     Returns:
-        List of dicts describing processed files.
+        List of processed file dicts (empty in skip_save mode).
     """
     standardizer = ImageStandardizer(config)
     processed = standardizer.process_all(records)
-
-    # Generate comparison grid (sample up to 6 pairs)
-    standardizer.generate_comparison_grid(records, n_samples=6)
-
     logger.info(
-        f"Standardization complete: {len(processed)} images processed."
+        "Standardization complete. "
+        f"{'(streaming mode — no disk writes)' if not processed else f'{len(processed)} images processed.'}"
     )
     return processed
