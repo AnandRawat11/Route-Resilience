@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-17T23:50:13",
+  "method": "stratified_random",
+  "random_seed": 42,
+  "source_split": "train",
+  "source_dataset": "deepglobe",
+  "total_labeled_pairs": 6226,
+  "internal_train": {
+    "count": 5292,
+    "ratio": 0.85,
+    "csv": "data/splits/internal_train.csv",
+    "sample_ids": [
+      "38072",
+      "216333",
+      "315262",
+      "610614",
+      "795582"
+    ]
+  },
+  "internal_val": {
+    "count": 934,
+    "ratio": 0.15,
+    "csv": "data/splits/internal_val.csv",
+    "sample_ids": [
+      "590035",
+      "755970",
+      "241467",
+      "39045",
+      "202688"
+    ]
+  },
+  "note": "Raw dataset structure in data/raw/deepglobe/ is unchanged. These CSVs are metadata-only: they record which image IDs to use for training vs. internal validation during Phase 2.",
+  "usage": {
+    "Phase 2 training": "Use internal_train.csv image IDs",
+    "Phase 2 validation": "Use internal_val.csv image IDs",
+    "Official valid/test": "Reserved for inference evaluation \u2014 NO masks"
+  }
+}

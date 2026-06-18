@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-06-17T23:45:23",
+  "config_file": "configs/config.yaml",
+  "deepglobe": {
+    "enabled": true,
+    "raw_dir": "data/raw/deepglobe",
+    "raw_dir_exists": true,
+    "layout": "split_dirs",
+    "splits_found": [
+      "train",
+      "valid",
+      "test"
+    ],
+    "train_images": 6226,
+    "train_masks": 6226,
+    "valid_images": 1243,
+    "test_images": 1101
+  },
+  "internal_split_config": {
+    "enabled": true,
+    "train_ratio": 0.85,
+    "val_ratio": 0.15,
+    "random_seed": 42,
+    "source_split": "train",
+    "output_dir": "data/splits",
+    "report_path": "outputs/reports/internal_split.json"
+  },
+  "other_datasets_disabled": {
+    "spacenet": false,
+    "opensatmap": false,
+    "osm": false,
+    "cartosat": false
+  },
+  "validation": "PASS",
+  "notes": [
+    "Only deepglobe is enabled \u2014 other datasets disabled until downloaded",
+    "layout=split_dirs routes ingestion to DeepGlobeAdapter",
+    "mask_has_splits=['train'] \u2014 valid/test processed without mask ops"
+  ]
+}

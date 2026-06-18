@@ -20,6 +20,7 @@ __pycache__/
 *.ipynb.bak
 
 # ── Data (large — download separately) ───────────────────────
+DeepGlobe Road Extraction Dataset/
 data/raw/
 data/processed/
 data/tiles/

@@ -1,0 +1,258 @@
+{
+  "generated_at": "2026-06-17T23:32:10",
+  "dataset_name": "DeepGlobe Road Extraction Dataset",
+  "source_location": "DeepGlobe Road Extraction Dataset",
+  "summary": {
+    "total_images": 8570,
+    "total_masks": 6226,
+    "total_pairs": 6226,
+    "unpaired_images": 2344,
+    "corrupt_files": 0,
+    "duplicate_ids": 0
+  },
+  "split_statistics": {
+    "train": {
+      "sat_count": 6226,
+      "mask_count": 6226,
+      "paired": 6226,
+      "unpaired": 0,
+      "examples": [
+        {
+          "sat": "100034_sat.jpg",
+          "mask": "100034_mask.png"
+        },
+        {
+          "sat": "100081_sat.jpg",
+          "mask": "100081_mask.png"
+        },
+        {
+          "sat": "100129_sat.jpg",
+          "mask": "100129_mask.png"
+        }
+      ]
+    },
+    "valid": {
+      "sat_count": 1243,
+      "mask_count": 0,
+      "paired": 0,
+      "unpaired": 1243,
+      "examples": []
+    },
+    "test": {
+      "sat_count": 1101,
+      "mask_count": 0,
+      "paired": 0,
+      "unpaired": 1101,
+      "examples": []
+    }
+  },
+  "sample_dimensions": {
+    "401242_sat.jpg": {
+      "width": 1024,
+      "height": 1024,
+      "channels": 3
+    },
+    "804816_sat.jpg": {
+      "width": 1024,
+      "height": 1024,
+      "channels": 3
+    },
+    "505418_sat.jpg": {
+      "width": 1024,
+      "height": 1024,
+      "channels": 3
+    },
+    "345264_sat.jpg": {
+      "width": 1024,
+      "height": 1024,
+      "channels": 3
+    },
+    "169287_sat.jpg": {
+      "width": 1024,
+      "height": 1024,
+      "channels": 3
+    }
+  },
+  "file_formats": {
+    "satellite_images": ".jpg (*_sat.jpg)",
+    "masks": ".png (*_mask.png)"
+  },
+  "naming_convention": "{numeric_id}_sat.jpg / {numeric_id}_mask.png",
+  "mask_class_definition": {
+    "road": "RGB(255,255,255) = white",
+    "background": "RGB(0,0,0) = black"
+  },
+  "class_dict_csv": [
+    [
+      "name",
+      "r",
+      "g",
+      "b"
+    ],
+    [
+      "road",
+      "255",
+      "255",
+      "255"
+    ],
+    [
+      "background",
+      "0",
+      "0",
+      "0"
+    ]
+  ],
+  "metadata_csv_columns": [
+    "image_id",
+    "split",
+    "sat_image_path",
+    "mask_path"
+  ],
+  "pair_examples": [
+    {
+      "id": "100034",
+      "split": "train",
+      "sat": "100034_sat.jpg",
+      "mask": "100034_mask.png"
+    },
+    {
+      "id": "100081",
+      "split": "train",
+      "sat": "100081_sat.jpg",
+      "mask": "100081_mask.png"
+    },
+    {
+      "id": "100129",
+      "split": "train",
+      "sat": "100129_sat.jpg",
+      "mask": "100129_mask.png"
+    },
+    {
+      "id": "100703",
+      "split": "train",
+      "sat": "100703_sat.jpg",
+      "mask": "100703_mask.png"
+    },
+    {
+      "id": "100712",
+      "split": "train",
+      "sat": "100712_sat.jpg",
+      "mask": "100712_mask.png"
+    }
+  ],
+  "unpaired_images": [
+    {
+      "id": "100794",
+      "split": "valid",
+      "file": "100794_sat.jpg"
+    },
+    {
+      "id": "100905",
+      "split": "valid",
+      "file": "100905_sat.jpg"
+    },
+    {
+      "id": "102867",
+      "split": "valid",
+      "file": "102867_sat.jpg"
+    },
+    {
+      "id": "10417",
+      "split": "valid",
+      "file": "10417_sat.jpg"
+    },
+    {
+      "id": "106553",
+      "split": "valid",
+      "file": "106553_sat.jpg"
+    },
+    {
+      "id": "10678",
+      "split": "valid",
+      "file": "10678_sat.jpg"
+    },
+    {
+      "id": "107243",
+      "split": "valid",
+      "file": "107243_sat.jpg"
+    },
+    {
+      "id": "109245",
+      "split": "valid",
+      "file": "109245_sat.jpg"
+    },
+    {
+      "id": "11053",
+      "split": "valid",
+      "file": "11053_sat.jpg"
+    },
+    {
+      "id": "112600",
+      "split": "valid",
+      "file": "112600_sat.jpg"
+    },
+    {
+      "id": "113081",
+      "split": "valid",
+      "file": "113081_sat.jpg"
+    },
+    {
+      "id": "114504",
+      "split": "valid",
+      "file": "114504_sat.jpg"
+    },
+    {
+      "id": "114656",
+      "split": "valid",
+      "file": "114656_sat.jpg"
+    },
+    {
+      "id": "115141",
+      "split": "valid",
+      "file": "115141_sat.jpg"
+    },
+    {
+      "id": "115798",
+      "split": "valid",
+      "file": "115798_sat.jpg"
+    },
+    {
+      "id": "115820",
+      "split": "valid",
+      "file": "115820_sat.jpg"
+    },
+    {
+      "id": "117209",
+      "split": "valid",
+      "file": "117209_sat.jpg"
+    },
+    {
+      "id": "117532",
+      "split": "valid",
+      "file": "117532_sat.jpg"
+    },
+    {
+      "id": "117974",
+      "split": "valid",
+      "file": "117974_sat.jpg"
+    },
+    {
+      "id": "118143",
+      "split": "valid",
+      "file": "118143_sat.jpg"
+    }
+  ],
+  "duplicate_ids": [],
+  "file_size_stats": {
+    "mean_bytes": 468875,
+    "min_bytes": 230173,
+    "max_bytes": 816276,
+    "total_bytes": 4018259136
+  },
+  "notes": [
+    "valid/ and test/ contain satellite images only \u2014 masks withheld (Kaggle competition format)",
+    "All 6,226 train images have corresponding _mask.png files",
+    "Masks are binary: white=road, black=background",
+    "Images are 1024x1024 RGB JPEG"
+  ]
+}
