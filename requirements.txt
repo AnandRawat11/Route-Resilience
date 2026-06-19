@@ -10,6 +10,7 @@ scipy>=1.11.0
 # Deep Learning (PyTorch)
 torch>=2.0.0
 torchvision>=0.15.0
+segmentation-models-pytorch>=0.3.3
 
 # Image Processing
 opencv-python>=4.8.0

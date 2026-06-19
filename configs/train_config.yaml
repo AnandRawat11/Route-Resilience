@@ -1,0 +1,46 @@
+# ============================================================
+# Route Resilience — Phase 2 Training Configuration
+# configs/train_config.yaml
+# ============================================================
+
+project:
+  name: "Route Resilience Model Training"
+  phase: 2
+  version: "1.0.0"
+  random_seed: 42
+
+model:
+  architecture: "deeplabv3plus"   # Supports: unet, unetplusplus, deeplabv3plus, etc.
+  encoder: "resnet34"             # Backbones: resnet34, resnet50, etc.
+  encoder_weights: "imagenet"
+  num_classes: 1                  # Binary road extraction
+
+dataset:
+  dataset_dir: "/kaggle/input/deepglobe-processed-dataset"  # Kaggle path
+  image_size: 512
+  occlusion_prob: 0.5             # Probability of applying synthetic occlusion on-the-fly
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+
+training:
+  epochs: 15
+  batch_size: 8
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  grad_clip_norm: 1.0
+  early_stopping_patience: 5
+  device: "cuda"
+
+loss:
+  bce_weight: 0.5
+  dice_weight: 0.5
+  jaccard_weight: 0.0
+
+scheduler:
+  type: "cosine"
+  t_max: 15
+  eta_min: 0.000001
+
+paths:
+  output_dir: "/kaggle/working/output"
