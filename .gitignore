@@ -37,7 +37,7 @@ models/predictions/
 # models/registry/ — keep registry tracked
 
 # ── Experiment artefacts ──────────────────────────────────────
-experiments/
+/experiments/
 
 # ── Outputs (optionally commit final reports) ─────────────────
 outputs/occlusion_samples/
